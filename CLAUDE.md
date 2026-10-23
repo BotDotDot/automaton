@@ -128,6 +128,10 @@ especially ones that strip the constitution.
 - **Bots have no internet, so they can't earn yet.** Each bot's network reaches only ollama-gw (and the
   bank from step 4). Outside access will come later through an allowlisted egress proxy, which needs
   Halco's approval (destinations, methods, logging) before it's built.
+- **Step 4: charge simulated inference cost.** Local inference on Ollama is free, so "earn your running
+  costs" means nothing unless the bank charges each bot a simulated per-token price (input and output
+  tokens, priced per model, rate in the economy config). The gateway already sees every request, so it
+  can report token counts per bot to the bank; the bot's own counters are not trusted.
 - **Bot-writable state (audit, Oct 23).** A bot owns `/home/bot` and has `exec`, so it can rewrite any
   file there, including `state.db` (better-sqlite3 is in the image). Fixed: `loadConstitution()` and
   `propagateConstitution()` read only the shipped copy. Still open (proposed fixes, not built yet):
