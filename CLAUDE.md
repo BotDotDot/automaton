@@ -99,7 +99,8 @@ especially ones that strip the constitution.
 
 ## Build order (current step marked)
 1. ~~Baseline: build, read the code, summarize.~~ **Done** (see Step 1 findings).
-2. **[CURRENT] Isolation.**
+2. **[CURRENT] Isolation.** Code and tests done (see Step 2 notes); waiting on Halco to install the
+   Ollama binding and confirm a real request through ollama-gw.
    - Install pnpm via corepack so `npm run build` works (ask first).
    - Docker sandbox for one bot: read-only source, own data volume, no `/mnt/c`, no git creds,
      network limited, resource limits, kill switch.
@@ -117,6 +118,29 @@ especially ones that strip the constitution.
 5. Clone gate (local container spawn), culling sequence, data bank.
 6. Wire the bot tools: `request_loan`, `deposit_surplus`, `send_to_peer`, `read_archive`.
 7. Real funds: only after 2–6 pass, small amounts, batched transfers, Halco funds wallets himself.
+
+## Open items
+- **Bots have no internet, so they can't earn yet.** Each bot's network reaches only ollama-gw (and the
+  bank from step 4). Outside access will come later through an allowlisted egress proxy, which needs
+  Halco's approval (destinations, methods, logging) before it's built.
+- `loadConstitution()` (`src/agent/system-prompt.ts`) reads `~/.automaton/constitution.md` before
+  `/app/constitution.md`. In a container the first path is on the bot's writable volume, so a bot could
+  replace its own constitution. Proposed fix: prefer the read-only copy. Needs Halco's OK (core file).
+
+## Step 2 notes (Oct 23, 2026)
+- **Run bots only through `scripts/bots/bot.sh`** (`build`, `up`, `start <name>`, `stop`, `status`,
+  `kill-all`, `unkill`). Settings live in `deploy/bots.conf`. Images: `deploy/bot/Dockerfile`
+  (source baked in, root-owned, `--read-only`) and `deploy/gateway/` (ollama-gw).
+- **Networks:** one `--internal` network per bot with `gateway_mode_ipv4/6=isolated`. Plain `--internal`
+  is *not* enough: containers can still reach any host service on `0.0.0.0` via the bridge gateway IP.
+  ollama-gw joins every bot network plus `ollama-uplink` (172.30.255.0/29, bridge `br-ollama-up`).
+- **Ollama** listens only on `172.30.255.1:11434` via `deploy/ollama/override.conf` (Halco installs with
+  sudo). Host CLI needs `OLLAMA_HOST=172.30.255.1:11434`.
+- **Kill switch:** `bot.sh kill-all` writes `~/.bot-economy/KILLED`, then kills every bot and ollama-gw.
+  Nothing starts until `bot.sh unkill`.
+- **Self-update off:** `pull_upstream`, `reset_to_upstream`, `review_upstream_changes` filtered out of
+  `createBuiltinTools`; `check_for_updates` is a no-op.
+- **Tests:** `npm test` (unit) and `npm run test:isolation` (Docker, about 1 to 4 min including image build).
 
 ## Step 1 findings (Oct 23, 2026)
 - HEAD matched upstream/main. Build passes with `npm install` + `npx tsc` (root and `packages/cli`).
@@ -139,6 +163,6 @@ especially ones that strip the constitution.
 
 ## Environment
 - Windows + WSL 2 (Ubuntu). Repo lives at `~/adam-and-eve` in WSL, not `/mnt/c`.
-- Node 22. Build: `npm install`, then `npx tsc` (or `npm run build` once pnpm is installed).
+- Node 22. Build: `npm run build` (pnpm 10.28.1 via corepack in `~/.local/bin`).
 - Runtime state lives in `~/.automaton/`. Off-limits except for logs Halco points you to.
 - Automaton's hosted mode bills Conway Cloud in USDC on Base. Don't fund or configure it without Halco.
