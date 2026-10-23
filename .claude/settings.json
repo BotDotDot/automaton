@@ -1,0 +1,21 @@
+{
+  "permissions": {
+    "deny": [
+      "Read(./.env)",
+      "Read(./.env.*)",
+      "Edit(./.env)",
+      "Edit(./.env.*)",
+      "Read(~/.automaton/**)",
+      "Edit(~/.automaton/**)",
+      "Read(**/*wallet*.json)",
+      "Read(**/*.key)",
+      "Read(**/*seed*)"
+    ],
+    "ask": [
+      "Bash(git push:*)",
+      "Bash(npm install:*)",
+      "Bash(pnpm add:*)",
+      "Edit(./src/economy/**)"
+    ]
+  }
+}

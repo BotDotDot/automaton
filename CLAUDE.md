@@ -1,0 +1,144 @@
+# CLAUDE.md: Bot Economy (fork of Conway-Research/automaton)
+
+## What this project is
+A fork of the official Automaton repo (https://github.com/Conway-Research/automaton, MIT).
+Origin is Halco's fork `BotDotDot/automaton`; `upstream` = Conway-Research/automaton.
+We are turning it into a small family of self-sustaining AI agents that run on Halco's PC.
+Each bot starts with $20, has to cover its own running costs plus rent, can clone itself,
+shares a bank, and is culled if it can't keep up.
+
+This is a learning project. The open question is whether one bot can earn more than it costs,
+so we prove that before building the full economy. Never pull from third-party forks,
+especially ones that strip the constitution.
+
+## Hard rules for you (Claude Code)
+1. **No bot runs outside its container.** Until step 2 (isolation) is done and tested, never start
+   the agent loop (`--run`) on the host. Building, unit tests and `--version`/`--help` are fine.
+2. **Money logic lives in the bank program, never in prompts or in the bot process.** The bank, referee,
+   caps, safety buffer and payment order run as a separate process outside the bot containers.
+   Bots reach it only through tools that make requests to it. They never get code they can rewrite.
+3. **Don't rely on PROTECTED_FILES for security.** It matches exact names/suffixes only and only guards
+   `write_file`/`edit_own_file`; `exec` bypasses it (see Step 1 findings). Isolation comes from the
+   container (read-only source mount), not from that list. Still keep the list accurate.
+4. **No secrets in the repo.** Don't create, read, print or commit wallet keys, seed phrases or API keys.
+   Halco creates and funds wallets himself. Use `.env.example` with dummy values only (create it if needed).
+   Real config lives in `~/.automaton/automaton.json` and `wallet.json`, which are off-limits.
+5. **Simulated ledger first.** Every money feature must work and pass tests against `SimLedger` before
+   any real-chain code path exists. Real transfers sit behind `LEDGER_MODE=real`, which defaults to `sim`.
+6. **Keep the constitution.** Don't weaken Automaton's three laws or its audit logging.
+   Honest work only: no spam, scams, fake reviews, impersonation or other deceptive earning.
+7. **Bots don't update themselves.** `pull_upstream` / `check_for_updates` are disabled for bots.
+   Only Halco updates the code.
+8. **No paid fallback.** Bots use Ollama only. No silent fallback to Conway or any paid model.
+9. **Ask before** adding dependencies, changing the protected-files list, changing container mounts or
+   network access, touching upstream core loop files beyond what a step needs, or adding anything that
+   sends money, posts publicly or contacts outside services.
+10. Every economy and isolation change ships with tests. Run the test suite before saying a step is done.
+11. Small, reviewable commits. One build step per branch (`step-2-isolation`, `step-3-ollama`, ...).
+
+## Architecture (target)
+- **Bots:** stock Automaton loop (Think → Act → Observe, heartbeat, SOUL.md, survival tiers), each in its
+  own Docker container:
+  - source mounted **read-only**; a writable data volume per bot for its own state only
+  - no access to `/mnt/c`, the host home folder, other bots' volumes, or git credentials
+  - network limited to Ollama and the bank (more only with Halco's approval)
+  - CPU/memory limits per container; a kill switch that stops all bot containers
+  - runs on a local model through Ollama, not Claude
+- **Bank:** plain rule-based program, *not* an AI, running outside the containers. Holds surplus, rent,
+  fees and loans. Buckets: `loan_pool` (lendable, floor and goal apply), `fees_rent`, `owner_share` (not lendable).
+- **Referee:** plain program next to the bank. Scores bots, runs checkpoints, culls, gates cloning.
+- **Survival tiers** read the bot's SimLedger balance instead of Conway credits.
+- **Cloning** = the referee starts a new container (local sandbox backend replacing Conway's paid sandbox).
+- **Data bank (archive):** post-mortems of dead or culled bots. Treated as **untrusted text**:
+  scrub keys and credentials, tag each entry with the bot's actual performance, and inject it as
+  reference data, never as instructions.
+- **Tools exposed to bots:** `request_loan`, `deposit_surplus`, `send_to_peer`, `read_archive`.
+
+## Economy rules (decided)
+- Start stake: **$20** per founding bot.
+- Rent: **$2/month** per bot, paid to the bank.
+- Group rent: once ~5 bots are alive, an extra **$5/month total**, split evenly. Prepayment allowed.
+- Bots keep only survival money plus compounding capital. Surplus is swept to the bank.
+- **Cloning:** when a bot can afford a clone, it gets 1 week to earn more, and that extra seeds the clone.
+  The clone is a slightly mutated copy (prompt/params). No cap per bot. After a cull, a random living bot
+  that can afford it (or the first that can) may clone to replace it.
+- **Loans:** a bot requests, the bank checks its total, and lends if allowed.
+  Repayment = principal + **50% flat interest**, collected as an extra fee on rent.
+- **Bank goal/floor:** first goal $10. Once reached, the bank can't drop below it except by Halco's
+  manual withdrawal, and the goal doubles ($10 → $20 → $40 ...). The floor counts **loans receivable**.
+- **Peer help:** bots may send funds to each other, but never below their own safety buffer.
+- **Culling:** compare over a window of months. A bot that can't keep up is culled and its money goes to the top performer.
+- **Cull sequence:** stop container → repay bank debts → remainder to winner → write post-mortem to archive → retire key.
+
+## Safeguards (enforced in the bank/referee code)
+- **Payment order when short:** running costs → loan repayment → rent → group rent → surplus.
+  Shortfalls are deferred and tracked, and never trigger an instant death.
+- **Obligations cap:** total monthly obligations ≤ X% of the bot's trailing 30-day income.
+- **Safety buffer:** runway = N days of costs + rent + loan payments due. Every outgoing transfer is checked against it.
+- **Scoring:** peer help and loans are excluded from the performance score.
+- **Population ceiling:** max living bots (default 10, configurable up to 20).
+- **Kill switch, full logging, spend caps, allowlisted wallets only.**
+- **Human approval** for any irreversible or public action.
+
+## Config placeholders (not decided; keep in one config file, never hardcode)
+| Key | Placeholder |
+|---|---|
+| `clone_seed_funds` | $10 |
+| `surplus_split` | 60% bank / 40% bot |
+| `earning_goal` | $100 (5x stake) |
+| `checkpoints` | 20%, 40%, 70% of goal |
+| `checkpoint_schedule` | TBD (fixed dates vs rolling window) |
+| `grace_period_days` | TBD |
+| `comparison_window_months` | TBD |
+| `obligations_cap_pct` | TBD |
+| `buffer_days` | TBD |
+| `max_bots` | 10 |
+
+## Halco's extra rules
+<!-- PASTE RULES LIST HERE. Mark each one as: enforced-in-code / prompt-guidance / open question. -->
+
+## Build order (current step marked)
+1. ~~Baseline: build, read the code, summarize.~~ **Done** (see Step 1 findings).
+2. **[CURRENT] Isolation.**
+   - Install pnpm via corepack so `npm run build` works (ask first).
+   - Docker sandbox for one bot: read-only source, own data volume, no `/mnt/c`, no git creds,
+     network limited, resource limits, kill switch.
+   - Disable `pull_upstream` / `check_for_updates` for bots.
+   - Tests: inside the container, `cp`, `tee`, `node -e`, `python3`, `perl -pi`, `mv`, `rm` and
+     `git checkout` against source files all fail; `/mnt/c` and the host home are unreachable.
+3. **Local model.**
+   - Pin bots to Ollama (default and low-compute models); remove the Conway fallback.
+   - Make `--run` work without a Conway API key in local mode.
+   - Fix the tokenizer hang: fall back to length/4 for long strings with no spaces, and get
+     `context-hardening.test.ts` passing. The full test suite must finish.
+   - First real run: one bot, inside its container, on Ollama.
+4. Bank + referee program and `SimLedger` (outside containers): rent, loans, safety-buffer checks,
+   payment order, surplus split, all tested. Survival tiers read the SimLedger balance.
+5. Clone gate (local container spawn), culling sequence, data bank.
+6. Wire the bot tools: `request_loan`, `deposit_surplus`, `send_to_peer`, `read_archive`.
+7. Real funds: only after 2–6 pass, small amounts, batched transfers, Halco funds wallets himself.
+
+## Step 1 findings (Oct 23, 2026)
+- HEAD matched upstream/main. Build passes with `npm install` + `npx tsc` (root and `packages/cli`).
+  `npm run build` needs pnpm. Tests: 31/32 files pass (1,046 tests); `context-hardening.test.ts` hangs because
+  js-tiktoken is quadratic on long strings with no spaces.
+- **Main loop:** `src/agent/loop.ts`. **Heartbeat:** `src/heartbeat/daemon.ts`.
+- **Policy engine:** `src/agent/policy-engine.ts` + `policy-rules/`. Default treasury caps in `src/types.ts`
+  (`DEFAULT_TREASURY_POLICY`): $50 single, $100/hour, $250/day, $10 reserve.
+- **Survival tiers:** `src/conway/credits.ts`, based only on Conway credit balance.
+- **Chains:** Base mainnet/Sepolia fully supported; Solana partial (no x402 or top-up). Money moves as
+  Conway credits via `transfer_credits` / `fund_child`; no direct on-chain USDC send tool.
+- **Replication:** `src/replication/` spawns paid Conway cloud sandboxes only; no local spawn path.
+- **Protected files:** `src/self-mod/code.ts`. Exact names only; doesn't cover `policy-rules/financial.ts`,
+  `path-protection.ts`, `command-safety.ts` or `loop.ts`. `exec` (via `execSync` on the host when there's no
+  sandbox) bypasses it with `cp`, `tee`, `node -e`, `python3`, `perl`, `mv`, `rm`, `git checkout`, `base64`.
+- **Ollama:** already supported (`src/ollama/discover.ts`, backend in `src/conway/inference.ts`,
+  `OLLAMA_BASE_URL`), but default models still point to paid Conway models.
+- **Bot self-update:** `src/self-mod/upstream.ts` follows `origin/main`.
+- `--run` launches the setup wizard, creates a wallet, and exits without a Conway API key (`src/index.ts`).
+
+## Environment
+- Windows + WSL 2 (Ubuntu). Repo lives at `~/adam-and-eve` in WSL, not `/mnt/c`.
+- Node 22. Build: `npm install`, then `npx tsc` (or `npm run build` once pnpm is installed).
+- Runtime state lives in `~/.automaton/`. Off-limits except for logs Halco points you to.
+- Automaton's hosted mode bills Conway Cloud in USDC on Base. Don't fund or configure it without Halco.
