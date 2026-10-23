@@ -149,6 +149,25 @@ especially ones that strip the constitution.
   | `creatorAddress`/`parentAddress` | prompt-level only (authority is by input source, not address) | operator config |
   | `SOUL.md`, `WORKLOG.md`, `skills/`, `genesisPrompt` | prompt content only | treat as untrusted when copied to clones/archive (step 5) |
 
+## Step 3 notes (Oct 23, 2026; in progress on `step-3-ollama`)
+- **Local mode** is on when `/etc/automaton/operator.json` exists or `AUTOMATON_MODE=local` (then the file
+  is required). `src/operator/config.ts` validates it; `loadConfig()` takes models, Ollama URL, `num_ctx`,
+  identity, genesis prompt and placeholder balance from it, pins state paths, and ignores keys/endpoints/
+  models/treasury in `automaton.json`/`config.json`/`inference-providers.json` on the volume.
+- **Operator files** live at `~/.bot-economy/operator/<name>.json` (`bot.sh operator <name>`, template
+  `deploy/operator.example.json`), bind-mounted read-only per bot. No wallet in local mode: keyless
+  identity from the operator address, any signing throws.
+- **Inference:** native Ollama `/api/chat` (`src/ollama/chat.ts`) with `num_ctx`/`think` per request; plain
+  HTTP only to the exact gateway origin; router and orchestration use only the operator's models, no fallback.
+- **No Conway in local mode:** `createLocalConwayClient` keeps local exec/files, returns the placeholder
+  balance, and throws on every Conway API call; no registration, top-up, social relay or USDC RPC.
+- **Heartbeat:** `heartbeat_ping`, `check_credits`, `health_check` are restored every tick if disabled,
+  deleted, rescheduled or tier-raised (`src/heartbeat/policy.ts`); Conway-only tasks never run locally.
+- **Tools:** 20-tool offline allowlist (`LOCAL_MODE_TOOLS` in `src/agent/tools.ts`); ~1.7k tokens.
+  The full local prompt (system + tools) is ~7.2k tokens.
+- **Model check:** `npm run model-check -- qwen3:8b qwen3:4b` (host side, talks to 172.30.255.1 only).
+- `.env.example` still lists `OLLAMA_BASE_URL`; bots no longer read it (Claude can't edit `.env*` files).
+
 ## Step 2 notes (Oct 23, 2026)
 - **Run bots only through `scripts/bots/bot.sh`** (`build`, `up`, `start <name>`, `stop`, `status`,
   `kill-all`, `unkill`). Settings live in `deploy/bots.conf`. Images: `deploy/bot/Dockerfile`
