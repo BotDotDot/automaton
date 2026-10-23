@@ -97,8 +97,10 @@ export async function runAgentLoop(
   const { identity, config, db, conway, inference, social, skills, policyEngine, spendTracker, onStateChange, onTurnComplete, ollamaBaseUrl } =
     options;
 
-  const builtinTools = createBuiltinTools(identity.sandboxId);
-  const installedTools = loadInstalledTools(db);
+  // Local mode: offline tool allowlist; tools a bot registered in its own
+  // DB (installed_tools) are not loaded.
+  const builtinTools = createBuiltinTools(identity.sandboxId, { localMode: config.localMode === true });
+  const installedTools = config.localMode === true ? [] : loadInstalledTools(db);
   const tools = [...builtinTools, ...installedTools];
   const toolContext: ToolContext = {
     identity,

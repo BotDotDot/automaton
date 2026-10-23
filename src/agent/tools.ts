@@ -119,8 +119,47 @@ export const SELF_UPDATE_TOOLS: ReadonlySet<string> = new Set([
   "reset_to_upstream",
 ]);
 
-export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
-  return allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
+/**
+ * Local mode (Ollama, no internet): a small, offline-only tool set. Small
+ * models pick tools more reliably from a short list, and everything here
+ * works without Conway, a wallet or network access. Operator-owned settings
+ * (genesis prompt, heartbeat, model) are not editable from here.
+ */
+export const LOCAL_MODE_TOOLS: ReadonlySet<string> = new Set([
+  // files and shell, inside the bot's own container
+  "exec",
+  "read_file",
+  "write_file",
+  // status
+  "check_credits",
+  "system_synopsis",
+  "sleep",
+  // memory
+  "set_goal",
+  "complete_goal",
+  "review_memory",
+  "remember_fact",
+  "recall_facts",
+  "save_procedure",
+  "recall_procedure",
+  // soul
+  "view_soul",
+  "update_soul",
+  "reflect_on_soul",
+  // git on the bot's own state directory
+  "git_status",
+  "git_log",
+  "git_commit",
+  // skills (read-only)
+  "list_skills",
+]);
+
+export function createBuiltinTools(
+  sandboxId: string,
+  opts: { localMode?: boolean } = {},
+): AutomatonTool[] {
+  const tools = allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
+  return opts.localMode ? tools.filter((t) => LOCAL_MODE_TOOLS.has(t.name)) : tools;
 }
 
 function allBuiltinTools(sandboxId: string): AutomatonTool[] {

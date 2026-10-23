@@ -120,7 +120,9 @@ describe("local mode run", () => {
     expect(chatBodies.length).toBeGreaterThanOrEqual(2);
     expect(urls.length).toBeGreaterThan(0);
     for (const url of urls) expect(url, "every request goes to the gateway").toBe(`${GW}/api/chat`);
+    const { LOCAL_MODE_TOOLS } = await import("../agent/tools.js");
     for (const body of chatBodies) {
+      expect(body.tools.map((t: any) => t.function.name).sort()).toEqual([...LOCAL_MODE_TOOLS].sort());
       expect(body.model).toBe("qwen3:8b");
       expect(body.options.num_ctx).toBe(16384);
       expect(body.think).toBe(false);
