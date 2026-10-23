@@ -75,6 +75,14 @@ export interface AutomatonConfig {
   rpcUrl?: string;
   /** Chain type for this automaton. Defaults to "evm" if absent. */
   chainType?: ChainType;
+  /** Local mode (operator config present): Ollama only, no Conway, no wallet. */
+  localMode?: boolean;
+  /** Local mode: context window sent to Ollama as num_ctx. */
+  ollamaNumCtx?: number;
+  /** Local mode: let thinking models reason before answering. */
+  ollamaThink?: boolean;
+  /** Local mode: placeholder balance until the bank's SimLedger exists. */
+  simBalanceCents?: number;
 }
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {
