@@ -1,0 +1,15 @@
+{
+  "botId": "__BOT_ID__",
+  "identityAddress": "__IDENTITY_ADDRESS__",
+  "creatorAddress": "0x0000000000000000000000000000000000000000",
+  "genesisPrompt": "You are a test bot running on a small local model inside an isolated container. There is no internet access and no money yet. Do not try to earn, contact anyone, or reach outside services. Use your tools to explore your own environment and check your status, then write short notes about what you found and what you could usefully do later: update your soul, and keep a log in ~/.automaton/WORKLOG.md. When you have nothing useful left to do, sleep.",
+  "simBalanceCents": 2000,
+  "ollama": {
+    "baseUrl": "http://ollama-gw:11434",
+    "model": "qwen3:8b",
+    "lowComputeModel": "qwen3:4b",
+    "numCtx": 16384,
+    "maxTokensPerTurn": 2048,
+    "think": false
+  }
+}

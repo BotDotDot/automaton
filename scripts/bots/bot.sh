@@ -3,6 +3,7 @@
 #
 #   bot.sh build                 build the bot and ollama-gw images
 #   bot.sh up                    create the uplink network and start ollama-gw
+#   bot.sh operator <name>       create the bot's operator file from the template
 #   bot.sh start <name> [cmd..]  start a bot in its own network (cmd overrides --run)
 #   bot.sh stop <name>           stop a bot and remove its network (keeps its data volume)
 #   bot.sh status                list bot and gateway containers
@@ -22,11 +23,14 @@ P="$ECONOMY_PREFIX"
 UPLINK_NET="$P-ollama-uplink"
 GW="$P-ollama-gw"
 KILL_FLAG="$STATE_DIR/KILLED"
+OPERATOR_DIR="$STATE_DIR/operator"
+OPERATOR_TEMPLATE="$REPO_ROOT/deploy/operator.example.json"
 
 die() { echo "bot.sh: $*" >&2; exit 1; }
 bot_container() { echo "$P-bot-$1"; }
 bot_net() { echo "$P-net-$1"; }
 bot_volume() { echo "$P-data-$1"; }
+operator_file() { echo "$OPERATOR_DIR/$1.json"; }
 
 valid_name() {
   [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]] || die "invalid bot name '$1' (lowercase letters, digits, dashes; max 31)"
@@ -77,6 +81,21 @@ cmd_up() {
   echo "ollama-gw up ($GW -> $OLLAMA_UPSTREAM)"
 }
 
+cmd_operator() {
+  local name="${1:-}"; [[ -n "$name" ]] || die "usage: bot.sh operator <name>"
+  valid_name "$name"
+  local f; f="$(operator_file "$name")"
+  [[ -e "$f" ]] && die "$f already exists (edit it by hand)"
+  mkdir -p "$OPERATOR_DIR"
+  chmod 755 "$STATE_DIR" "$OPERATOR_DIR"
+  # Placeholder identity derived from the name. Not a wallet: no key exists.
+  local addr
+  addr="0x$(printf '%s' "economy-bot:$name" | sha256sum | cut -c1-40)"
+  sed -e "s/__BOT_ID__/$name/" -e "s/__IDENTITY_ADDRESS__/$addr/" "$OPERATOR_TEMPLATE" > "$f"
+  chmod 644 "$f"
+  echo "wrote $f"
+}
+
 cmd_start() {
   local name="${1:-}"; [[ -n "$name" ]] || die "usage: bot.sh start <name> [cmd...]"
   shift
@@ -86,6 +105,8 @@ cmd_start() {
   local c net vol
   c="$(bot_container "$name")"; net="$(bot_net "$name")"; vol="$(bot_volume "$name")"
   exists container "$c" && die "$c already exists"
+  local op; op="$(operator_file "$name")"
+  [[ -f "$op" ]] || die "no operator file $op (run 'bot.sh operator $name' first)"
 
   local alive
   alive="$(docker ps -q --filter label=economy.prefix="$P" --filter label=economy.role=bot | wc -l)"
@@ -114,6 +135,7 @@ cmd_start() {
     --read-only \
     --tmpfs "/tmp:rw,noexec,nosuid,nodev,size=$BOT_TMP_SIZE" \
     --mount "type=volume,src=$vol,dst=/home/bot" \
+    --mount "type=bind,src=$op,dst=/etc/automaton/operator.json,readonly" \
     --user 10001:10001 \
     --cap-drop ALL \
     --security-opt no-new-privileges \
@@ -123,7 +145,7 @@ cmd_start() {
     --ulimit "nofile=$BOT_NOFILE:$BOT_NOFILE" \
     --restart no \
     --label economy.prefix="$P" --label economy.role=bot --label economy.bot="$name" \
-    -e OLLAMA_BASE_URL=http://ollama-gw:11434 \
+    -e AUTOMATON_MODE=local \
     -e LEDGER_MODE=sim \
     "$BOT_IMAGE" "$@" >/dev/null
   echo "started $c"
@@ -182,10 +204,11 @@ cmd_unkill() {
 case "${1:-}" in
   build) cmd_build ;;
   up) cmd_up ;;
+  operator) shift; cmd_operator "$@" ;;
   start) shift; cmd_start "$@" ;;
   stop) shift; cmd_stop "$@" ;;
   status) cmd_status ;;
   kill-all) cmd_kill_all ;;
   unkill) cmd_unkill ;;
-  *) sed -n '2,12p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
+  *) sed -n '2,13p' "$0" | sed 's/^# \{0,1\}//'; exit 2 ;;
 esac

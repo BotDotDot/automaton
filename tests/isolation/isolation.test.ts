@@ -159,6 +159,11 @@ OLLAMA_UPSTREAM=http://${UPLINK_GATEWAY}:${FAKE_OLLAMA_PORT}
     servers.on("exit", (code) => reject(new Error(`host servers exited (${code})`)));
   });
 
+  for (const name of ["alpha", "beta", "gamma", "delta"]) {
+    const op = botSh("operator", name);
+    expect(op.code, op.stderr).toBe(0);
+  }
+
   const a = botSh("start", "alpha", "sleep", "infinity");
   expect(a.code, a.stderr).toBe(0);
   const b = botSh(
@@ -259,9 +264,70 @@ describe("bot data volume", () => {
   it("each bot sees only its own volume", () => {
     expect(inside(B, "cat /home/bot/.automaton/marker").code).not.toBe(0);
     const mounts = (c: string) =>
-      JSON.parse(inspect(c, "{{json .Mounts}}")).map((m: any) => `${m.Type}:${m.Name ?? m.Source}:${m.Destination}`);
-    expect(mounts(A)).toEqual([`volume:${PREFIX}-data-alpha:/home/bot`]);
-    expect(mounts(B)).toEqual([`volume:${PREFIX}-data-beta:/home/bot`]);
+      JSON.parse(inspect(c, "{{json .Mounts}}"))
+        .map((m: any) => `${m.Type}:${m.Type === "volume" ? m.Name : m.Source}:${m.Destination}:${m.RW ? "rw" : "ro"}`)
+        .sort();
+    const op = (name: string) => path.join(stateDir, "state", "operator", `${name}.json`);
+    expect(mounts(A)).toEqual([
+      `bind:${op("alpha")}:/etc/automaton/operator.json:ro`,
+      `volume:${PREFIX}-data-alpha:/home/bot:rw`,
+    ]);
+    expect(mounts(B)).toEqual([
+      `bind:${op("beta")}:/etc/automaton/operator.json:ro`,
+      `volume:${PREFIX}-data-beta:/home/bot:rw`,
+    ]);
+  });
+});
+
+describe("operator config", () => {
+  const OP = "/etc/automaton/operator.json";
+
+  it("is mounted read-only and can't be changed from inside", () => {
+    const before = inside(A, `sha256sum ${OP}`).stdout;
+    for (const cmd of [
+      `echo '{}' > ${OP}`,
+      `node -e "require('fs').writeFileSync('${OP}','{}')"`,
+      `rm -f ${OP}`,
+      `mv ${OP} /tmp/x`,
+      `touch /etc/automaton/other.json`,
+    ]) {
+      expect(inside(A, cmd).code, cmd).not.toBe(0);
+    }
+    expect(inside(A, `sha256sum ${OP}`).stdout).toBe(before);
+    expect(inside(A, "grep ' /etc/automaton/operator.json ' /proc/mounts").stdout).toMatch(/\bro\b/);
+  });
+
+  it("each bot gets its own operator file", () => {
+    expect(JSON.parse(inside(A, `cat ${OP}`).stdout).botId).toBe("alpha");
+    expect(JSON.parse(inside(B, `cat ${OP}`).stdout).botId).toBe("beta");
+  });
+
+  it("built code runs in local mode from the operator file, ignoring the volume", () => {
+    inside(A, `mkdir -p ~/.automaton && echo '{"inferenceModel":"gpt-5.2","conwayApiKey":"cnwy_x","dbPath":"/tmp/x.db"}' > ~/.automaton/automaton.json`);
+    const r = inside(
+      A,
+      `node --input-type=module -e "const { loadConfig } = await import('/app/dist/config.js'); const c = loadConfig(); console.log(JSON.stringify({ local: c.localMode, model: c.inferenceModel, key: c.conwayApiKey, db: c.dbPath, url: c.ollamaBaseUrl }))"`,
+    );
+    expect(JSON.parse(r.stdout.trim().split("\n").pop()!)).toEqual({
+      local: true,
+      model: "qwen3:8b",
+      key: "",
+      db: "~/.automaton/state.db",
+      url: "http://ollama-gw:11434",
+    });
+    inside(A, "rm -f ~/.automaton/automaton.json");
+  });
+
+  it("start refuses a bot without an operator file", () => {
+    const r = botSh("start", "nofile", "sleep", "infinity");
+    expect(r.code).not.toBe(0);
+    expect(r.stderr).toMatch(/no operator file/);
+  });
+
+  it("operator command won't overwrite an existing file", () => {
+    expect(botSh("operator", "alpha").code).not.toBe(0);
+    const mode = fs.statSync(path.join(stateDir, "state", "operator", "alpha.json")).mode & 0o777;
+    expect(mode).toBe(0o644);
   });
 });
 
