@@ -43,6 +43,7 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "test:isolation": "vitest run -c vitest.isolation.config.ts",
+    "model-check": "tsx scripts/model-check/model-check.ts",
     "test:coverage": "vitest run --coverage",
     "test:security": "vitest run --grep 'security|injection|policy'",
     "test:financial": "vitest run --grep 'financial|spend|treasury'",
