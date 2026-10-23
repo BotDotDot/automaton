@@ -568,7 +568,7 @@ describe("Tool risk classifications", () => {
   it("classifies dangerous tools correctly", () => {
     const tools = createBuiltinTools("test-sandbox-id");
     const expectedDangerous = [
-      "edit_own_file", "pull_upstream", "install_npm_package",
+      "edit_own_file", "install_npm_package", // pull_upstream is disabled for bots
       "install_mcp_server", "install_skill", "create_skill", "remove_skill",
       "transfer_credits", "fund_child", "x402_fetch", "register_domain",
       "spawn_child", "delete_sandbox", "update_genesis_prompt",
