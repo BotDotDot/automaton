@@ -1,0 +1,17 @@
+# Allowlist: the build context only gets what the image needs.
+# Keeps .git (remote URLs, history), .env, databases, wallets and host
+# node_modules/dist out of every image.
+*
+!package.json
+!pnpm-lock.yaml
+!pnpm-workspace.yaml
+!tsconfig.json
+!constitution.md
+!LICENSE
+!src/
+!packages/cli/package.json
+!packages/cli/tsconfig.json
+!packages/cli/src/
+src/__tests__/
+**/*.db
+**/.env*
