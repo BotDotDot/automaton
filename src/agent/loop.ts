@@ -378,7 +378,7 @@ export async function runAgentLoop(
   onStateChange?.("waking");
 
   // Get financial state
-  let financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
+  let financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm", config.localMode === true);
 
   // Check if this is the first run
   const isFirstRun = db.getTurnCount() === 0;
@@ -446,7 +446,7 @@ export async function runAgentLoop(
       }
 
       // Refresh financial state periodically
-      financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
+      financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm", config.localMode === true);
 
       // Check survival tier
       // api_unreachable: creditsCents === -1 means API failed with no cache.
@@ -481,7 +481,7 @@ export async function runAgentLoop(
                 log(config, `[AUTO-TOPUP] Bought $${topupResult.amountUsd} credits from USDC mid-loop`);
                 // Re-fetch financial state after topup so the rest of
                 // the turn sees the updated balance.
-                financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm");
+                financial = await getFinancialState(conway, identity.address, db, config.chainType || identity.chainType || "evm", config.localMode === true);
               }
             } catch (err: any) {
               logger.warn(`Inline auto-topup failed: ${err.message}`);
@@ -968,7 +968,18 @@ async function getFinancialState(
   address: string,
   db?: AutomatonDatabase,
   chainType?: string,
+  localMode = false,
 ): Promise<FinancialState> {
+  if (localMode) {
+    // Placeholder balance from the operator config (via the local Conway
+    // client); no USDC/RPC lookups. Replaced by the bank's SimLedger in step 4.
+    return {
+      creditsCents: await conway.getCreditsBalance(),
+      usdcBalance: 0,
+      lastChecked: new Date().toISOString(),
+    };
+  }
+
   let creditsCents = _lastKnownCredits;
   let usdcBalance = _lastKnownUsdc;
 

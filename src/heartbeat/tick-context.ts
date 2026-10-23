@@ -43,6 +43,7 @@ export async function buildTickContext(
   config: HeartbeatConfig,
   walletAddress?: string,
   chainType?: string,
+  opts: { localMode?: boolean } = {},
 ): Promise<TickContext> {
   const tickId = generateTickId();
   const startedAt = new Date();
@@ -55,8 +56,10 @@ export async function buildTickContext(
     logger.error("Failed to fetch credit balance", err instanceof Error ? err : undefined);
   }
 
+  // Local mode: no wallet and no RPC; the credit balance is the operator's
+  // placeholder from the local Conway client.
   let usdcBalance = 0;
-  if (walletAddress) {
+  if (walletAddress && !opts.localMode) {
     try {
       const network = chainType === "solana" ? "solana:mainnet" : "eip155:8453";
       usdcBalance = await getUsdcBalance(walletAddress, network, chainType as any);

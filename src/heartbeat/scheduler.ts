@@ -96,6 +96,7 @@ export class DurableScheduler {
         this.config,
         this.legacyContext.identity.address,
         this.legacyContext.identity.chainType,
+        { localMode: this.legacyContext.config.localMode === true },
       );
 
       // Get tasks that are due
