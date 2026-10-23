@@ -616,6 +616,8 @@ export interface HttpClientConfig {
   circuitBreakerThreshold: number;   // default: 5
   circuitBreakerResetMs: number;     // default: 60_000ms
   allowHttpOnLoopback: boolean;      // default: false (for local dev only)
+  /** Exact origins (scheme://host:port) allowed over plain HTTP, e.g. the local-mode Ollama gateway. */
+  allowHttpOrigins?: string[];
 }
 
 export const DEFAULT_HTTP_CLIENT_CONFIG: HttpClientConfig = {
