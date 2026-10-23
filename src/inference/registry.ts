@@ -80,6 +80,40 @@ export class ModelRegistry {
   }
 
   /**
+   * Local mode: register exactly the operator's Ollama models (free, any
+   * tier) and disable everything else, including the paid baseline.
+   * Replaces initialize(); Ollama discovery is not used in local mode.
+   */
+  initializeLocal(models: { modelId: string; maxTokens: number; contextWindow: number }[]): void {
+    const now = new Date().toISOString();
+    const keep = new Set(models.map((m) => m.modelId));
+    for (const existing of modelRegistryGetAll(this.db)) {
+      if (!keep.has(existing.modelId) && existing.enabled) {
+        modelRegistrySetEnabled(this.db, existing.modelId, false);
+      }
+    }
+    for (const m of models) {
+      const existing = modelRegistryGet(this.db, m.modelId);
+      modelRegistryUpsert(this.db, {
+        modelId: m.modelId,
+        provider: "ollama",
+        displayName: `${m.modelId} (local)`,
+        tierMinimum: "dead",
+        costPer1kInput: 0,
+        costPer1kOutput: 0,
+        maxTokens: m.maxTokens,
+        contextWindow: m.contextWindow,
+        supportsTools: true,
+        supportsVision: false,
+        parameterStyle: "max_tokens",
+        enabled: true,
+        createdAt: existing?.createdAt || now,
+        updatedAt: now,
+      });
+    }
+  }
+
+  /**
    * Get a single model by ID.
    */
   get(modelId: string): ModelEntry | undefined {

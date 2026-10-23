@@ -269,6 +269,48 @@ export class ProviderRegistry {
     }
   }
 
+  /**
+   * Local mode: a single Ollama provider (OpenAI-compatible /v1 through the
+   * gateway) serving every tier, with no fallback to any other provider.
+   * inference-providers.json on the bot's volume is never read.
+   */
+  static localOnly(opts: {
+    baseUrl: string;
+    model: string;
+    lowComputeModel: string;
+    contextWindow: number;
+    maxOutputTokens: number;
+  }): ProviderRegistry {
+    const modelFor = (id: string, tier: ModelTier): ModelConfig => ({
+      id,
+      tier,
+      contextWindow: opts.contextWindow,
+      maxOutputTokens: opts.maxOutputTokens,
+      costPerInputToken: 0,
+      costPerOutputToken: 0,
+      supportsTools: true,
+      supportsVision: false,
+      supportsStreaming: true,
+    });
+    const provider: ProviderConfig = {
+      id: "local",
+      name: "Local Ollama (operator)",
+      baseUrl: `${opts.baseUrl.replace(/\/$/, "")}/v1`,
+      apiKeyEnvVar: "LOCAL_API_KEY",
+      models: [
+        modelFor(opts.model, "reasoning"),
+        modelFor(opts.model, "fast"),
+        modelFor(opts.lowComputeModel, "cheap"),
+      ],
+      maxRequestsPerMinute: 600,
+      maxTokensPerMinute: 10_000_000,
+      priority: 0,
+      enabled: true,
+    };
+    const only: TierDefault = { preferredProvider: "local", fallbackOrder: [] };
+    return new ProviderRegistry([provider], { reasoning: only, fast: only, cheap: only });
+  }
+
   static fromConfig(configPath: string): ProviderRegistry {
     let providers = DEFAULT_PROVIDERS.map((provider) => deepCloneProvider(provider));
     let tierDefaults = DEFAULT_TIER_DEFAULTS;

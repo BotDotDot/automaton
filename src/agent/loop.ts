@@ -62,6 +62,7 @@ import { LocalWorkerPool } from "../orchestration/local-worker.js";
 import { SimpleAgentTracker, SimpleFundingProtocol } from "../orchestration/simple-tracker.js";
 import { HarnessRegistry } from "./harness-registry.js";
 import { createWorkerInferenceBridge } from "./worker-inference-bridge.js";
+import { localModelEntries } from "../operator/config.js";
 import { ProviderRegistry } from "../inference/provider-registry.js";
 import { UnifiedInferenceClient } from "../inference/inference-client.js";
 import { isIdleOnlyTool } from "./idle-only-tools.js";
@@ -114,15 +115,21 @@ export async function runAgentLoop(
     ...(config.modelStrategy ?? {}),
   };
   const modelRegistry = new ModelRegistry(db.raw);
-  modelRegistry.initialize();
+  const localMode = config.localMode === true;
+  if (localMode) {
+    // Operator's Ollama models only; no paid baseline, no discovery.
+    modelRegistry.initializeLocal(localModelEntries(config));
+  } else {
+    modelRegistry.initialize();
+  }
 
   // Discover Ollama models if configured
-  if (ollamaBaseUrl) {
+  if (ollamaBaseUrl && !localMode) {
     const { discoverOllamaModels } = await import("../ollama/discover.js");
     await discoverOllamaModels(ollamaBaseUrl, db.raw);
   }
   const budgetTracker = new InferenceBudgetTracker(db.raw, modelStrategyConfig);
-  const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker);
+  const inferenceRouter = new InferenceRouter(db.raw, modelRegistry, budgetTracker, { localMode });
 
   // Optional orchestration bootstrap (requires V9 goals/task tables)
   let planModeController: PlanModeController | undefined;
@@ -133,6 +140,18 @@ export async function runAgentLoop(
     try {
       planModeController = new PlanModeController(db.raw);
 
+      let registry: ProviderRegistry;
+      if (localMode) {
+        // Ollama through the gateway for every tier. No keys, no Conway
+        // fallback, and inference-providers.json on the volume is ignored.
+        registry = ProviderRegistry.localOnly({
+          baseUrl: config.ollamaBaseUrl as string,
+          model: modelStrategyConfig.inferenceModel,
+          lowComputeModel: modelStrategyConfig.lowComputeModel,
+          contextWindow: config.ollamaNumCtx ?? 16384,
+          maxOutputTokens: modelStrategyConfig.maxTokensPerTurn,
+        });
+      } else {
       // Bridge automaton config API keys to env vars for the provider registry.
       // The registry reads keys from process.env; the automaton config may have
       // them from config.json or Conway provisioning.
@@ -161,12 +180,13 @@ export async function runAgentLoop(
         ".automaton",
         "inference-providers.json",
       );
-      const registry = ProviderRegistry.fromConfig(providersPath);
+      registry = ProviderRegistry.fromConfig(providersPath);
 
       // If OPENAI_BASE_URL was set (Conway fallback), update the default
       // provider's baseUrl so the OpenAI client points to Conway Compute.
       if (process.env.OPENAI_BASE_URL) {
         registry.overrideBaseUrl("openai", process.env.OPENAI_BASE_URL);
+      }
       }
 
       const unifiedInference = new UnifiedInferenceClient(registry);

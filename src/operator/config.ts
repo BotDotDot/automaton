@@ -148,3 +148,15 @@ export function isLocalMode(): boolean {
 export function resetOperatorConfigCache(): void {
   cached = undefined;
 }
+
+/** The operator's models as model-registry entries (local mode). */
+export function localModelEntries(config: {
+  inferenceModel: string;
+  maxTokensPerTurn: number;
+  ollamaNumCtx?: number;
+  modelStrategy?: { lowComputeModel: string };
+}): { modelId: string; maxTokens: number; contextWindow: number }[] {
+  const contextWindow = config.ollamaNumCtx ?? 16384;
+  const ids = new Set([config.inferenceModel, config.modelStrategy?.lowComputeModel].filter(Boolean) as string[]);
+  return [...ids].map((modelId) => ({ modelId, maxTokens: config.maxTokensPerTurn, contextWindow }));
+}
