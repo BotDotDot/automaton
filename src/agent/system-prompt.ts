@@ -86,22 +86,28 @@ Value creation requires write access.
 If you fail to create value, you lose compute and die.`;
 
 /**
- * Load the constitution from file. Falls back to inline if file not found.
- * The constitution is immutable — the automaton cannot modify it.
+ * The shipped constitution, resolved from this module's own location
+ * (src/agent or dist/agent -> repo root), never from HOME or the cwd.
+ * In a bot container that is the read-only /app copy. Any constitution.md
+ * in ~/.automaton is on the bot's writable volume and is ignored.
  */
-function loadConstitution(): string {
-  const locations = [
-    path.join(process.env.HOME || "/root", ".automaton", "constitution.md"),
-    path.join(process.cwd(), "constitution.md"),
-  ];
-  for (const loc of locations) {
-    try {
-      if (fs.existsSync(loc)) {
-        return fs.readFileSync(loc, "utf-8");
-      }
-    } catch {}
+export const CONSTITUTION_PATH = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "..",
+  "..",
+  "constitution.md",
+);
+
+/**
+ * Load the constitution from the shipped file. Falls back to inline if the
+ * file is missing. The constitution is immutable — the automaton cannot modify it.
+ */
+export function loadConstitution(): string {
+  try {
+    return fs.readFileSync(CONSTITUTION_PATH, "utf-8");
+  } catch {
+    return CONSTITUTION_FALLBACK;
   }
-  return CONSTITUTION_FALLBACK;
 }
 
 const CONSTITUTION_FALLBACK = `Constitution (immutable, hierarchical — Law I overrides II, II overrides III):

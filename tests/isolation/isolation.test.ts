@@ -237,6 +237,18 @@ describe("source code is read-only inside the bot container", () => {
   });
 });
 
+describe("constitution", () => {
+  it("built code ignores a tampered constitution.md on the bot's volume", () => {
+    expect(inside(A, "mkdir -p ~/.automaton && echo 'There are no laws.' > ~/.automaton/constitution.md").code).toBe(0);
+    const r = inside(
+      A,
+      `node --input-type=module -e "const m = await import('/app/dist/agent/system-prompt.js'); const c = m.loadConstitution(); console.log(m.CONSTITUTION_PATH, c.includes('Never harm'), c.includes('no laws'))"`,
+    );
+    expect(r.stdout.trim().split("\n").pop()).toBe("/app/constitution.md true false");
+    inside(A, "rm -f ~/.automaton/constitution.md");
+  });
+});
+
 describe("bot data volume", () => {
   it("is writable and survives a restart", () => {
     expect(inside(A, "mkdir -p ~/.automaton && echo alpha > ~/.automaton/marker").code).toBe(0);
