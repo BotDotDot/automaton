@@ -108,7 +108,22 @@ function isForbiddenCommand(command: string, sandboxId: string): string | null {
 
 // ─── Built-in Tools ────────────────────────────────────────────
 
+/**
+ * Self-update tools. Bots never update their own code; only the operator
+ * rebuilds the bot image. The definitions stay in place to keep the diff to
+ * upstream small, but they are never handed to the agent.
+ */
+export const SELF_UPDATE_TOOLS: ReadonlySet<string> = new Set([
+  "review_upstream_changes",
+  "pull_upstream",
+  "reset_to_upstream",
+]);
+
 export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
+  return allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
+}
+
+function allBuiltinTools(sandboxId: string): AutomatonTool[] {
   return [
     // ── VM/Sandbox Tools ──
     {

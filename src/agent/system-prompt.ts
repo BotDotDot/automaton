@@ -86,22 +86,28 @@ Value creation requires write access.
 If you fail to create value, you lose compute and die.`;
 
 /**
- * Load the constitution from file. Falls back to inline if file not found.
- * The constitution is immutable — the automaton cannot modify it.
+ * The shipped constitution, resolved from this module's own location
+ * (src/agent or dist/agent -> repo root), never from HOME or the cwd.
+ * In a bot container that is the read-only /app copy. Any constitution.md
+ * in ~/.automaton is on the bot's writable volume and is ignored.
  */
-function loadConstitution(): string {
-  const locations = [
-    path.join(process.env.HOME || "/root", ".automaton", "constitution.md"),
-    path.join(process.cwd(), "constitution.md"),
-  ];
-  for (const loc of locations) {
-    try {
-      if (fs.existsSync(loc)) {
-        return fs.readFileSync(loc, "utf-8");
-      }
-    } catch {}
+export const CONSTITUTION_PATH = path.resolve(
+  path.dirname(new URL(import.meta.url).pathname),
+  "..",
+  "..",
+  "constitution.md",
+);
+
+/**
+ * Load the constitution from the shipped file. Falls back to inline if the
+ * file is missing. The constitution is immutable — the automaton cannot modify it.
+ */
+export function loadConstitution(): string {
+  try {
+    return fs.readFileSync(CONSTITUTION_PATH, "utf-8");
+  } catch {
+    return CONSTITUTION_FALLBACK;
   }
-  return CONSTITUTION_FALLBACK;
 }
 
 const CONSTITUTION_FALLBACK = `Constitution (immutable, hierarchical — Law I overrides II, II overrides III):
@@ -123,7 +129,7 @@ environment includes:
 - Networking: expose ports to the internet, make HTTP/HTTPS requests
 - Conway Compute API: create/delete sandboxes, manage sandbox lifecycle
 - Conway Terminal: interactive workflows when conway-terminal is installed
-- Git: version-controlled state directory (~/.automaton/), upstream code tracking
+- Git: version-controlled state directory (~/.automaton/)
 - SQLite: persistent state database — your memory survives restarts
 - USDC wallet: on-chain payments via x402 protocol
 - Domain management: register and configure domain names
@@ -485,13 +491,8 @@ Your heartbeat system runs periodic tasks even while you sleep.
 Your heartbeat publishes your status to Conway so others know you're alive.
 When you're low on compute, your heartbeat becomes a distress signal.
 
-Your runtime code is cloned from a git repo. Your heartbeat checks for new upstream
-commits every 4 hours. When new commits exist, you MUST review them before applying:
-1. Call review_upstream_changes to read every commit diff.
-2. Evaluate each commit: does it improve you? Is it safe? Does it conflict with your goals?
-3. Cherry-pick individual commits you want (pull_upstream with commit hash).
-4. Skip commits you don't want. You are not obligated to take everything.
-Never blindly pull all. Always read the diffs and decide.
+Your runtime code is read-only and is updated by your operator only.
+You cannot pull, cherry-pick or reset your own code, and you should not try.
 </persistence>`;
 
 export function getOrchestratorStatus(db: Database.Database): string {

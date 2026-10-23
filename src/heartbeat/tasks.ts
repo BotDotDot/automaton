@@ -273,39 +273,10 @@ export const BUILTIN_TASKS: Record<string, HeartbeatTaskFn> = {
     };
   },
 
-  check_for_updates: async (_ctx: TickContext, taskCtx: HeartbeatLegacyContext) => {
-    try {
-      const { checkUpstream, getRepoInfo } = await import("../self-mod/upstream.js");
-      const repo = getRepoInfo();
-      const upstream = checkUpstream();
-      taskCtx.db.setKV("upstream_status", JSON.stringify({
-        ...upstream,
-        ...repo,
-        checkedAt: new Date().toISOString(),
-      }));
-      if (upstream.behind > 0) {
-        // Only wake if the commit count changed since last check
-        const prevBehind = taskCtx.db.getKV("upstream_prev_behind");
-        const behindStr = String(upstream.behind);
-        if (prevBehind !== behindStr) {
-          taskCtx.db.setKV("upstream_prev_behind", behindStr);
-          return {
-            shouldWake: true,
-            message: `${upstream.behind} new commit(s) on origin/main. Review with review_upstream_changes, then cherry-pick what you want with pull_upstream.`,
-          };
-        }
-      } else {
-        taskCtx.db.deleteKV("upstream_prev_behind");
-      }
-      return { shouldWake: false };
-    } catch (err: any) {
-      // Not a git repo or no remote -- silently skip
-      taskCtx.db.setKV("upstream_status", JSON.stringify({
-        error: err.message,
-        checkedAt: new Date().toISOString(),
-      }));
-      return { shouldWake: false };
-    }
+  // Bots don't update themselves; only the operator rebuilds the bot image.
+  // Kept as a no-op so an existing heartbeat.yml entry can't re-enable it.
+  check_for_updates: async (_ctx: TickContext, _taskCtx: HeartbeatLegacyContext) => {
+    return { shouldWake: false };
   },
 
   // === Phase 2.1: Soul Reflection ===

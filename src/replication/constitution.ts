@@ -6,10 +6,10 @@
  */
 
 import fs from "fs";
-import pathLib from "path";
 import { createHash } from "crypto";
 import type { Database as DatabaseType } from "better-sqlite3";
 import type { ConwayClient } from "../types.js";
+import { CONSTITUTION_PATH } from "../agent/system-prompt.js";
 
 /**
  * Compute SHA-256 hash of content.
@@ -27,13 +27,9 @@ export async function propagateConstitution(
   sandboxId: string,
   db: DatabaseType,
 ): Promise<void> {
-  const constitutionPath = pathLib.join(
-    process.env.HOME || "/root",
-    ".automaton",
-    "constitution.md",
-  );
-
-  const constitution = fs.readFileSync(constitutionPath, "utf-8");
+  // Always the shipped (read-only in containers) copy, never the one in
+  // ~/.automaton, which is on the bot's writable volume.
+  const constitution = fs.readFileSync(CONSTITUTION_PATH, "utf-8");
   const hash = sha256(constitution);
 
   // Write constitution to child sandbox

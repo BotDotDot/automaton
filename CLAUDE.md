@@ -99,15 +99,21 @@ especially ones that strip the constitution.
 
 ## Build order (current step marked)
 1. ~~Baseline: build, read the code, summarize.~~ **Done** (see Step 1 findings).
-2. **[CURRENT] Isolation.**
+2. ~~Isolation.~~ **Done** (see Step 2 notes). Reboot check passed Oct 23.
    - Install pnpm via corepack so `npm run build` works (ask first).
    - Docker sandbox for one bot: read-only source, own data volume, no `/mnt/c`, no git creds,
      network limited, resource limits, kill switch.
    - Disable `pull_upstream` / `check_for_updates` for bots.
    - Tests: inside the container, `cp`, `tee`, `node -e`, `python3`, `perl -pi`, `mv`, `rm` and
      `git checkout` against source files all fail; `/mnt/c` and the host home are unreachable.
-3. **Local model.**
+3. **[CURRENT] Local model.**
    - Pin bots to Ollama (default and low-compute models); remove the Conway fallback.
+   - Models and endpoints come from operator config only (read-only, outside the bot's volume).
+     In local mode, ignore `inference-providers.json` and any API keys on the volume
+     (`automaton.json`, `config.json`).
+   - Pin `dbPath` (and `heartbeatConfigPath`, `skillsDir`) so the volume config can't repoint them.
+   - Force the safety heartbeat tasks on (`check_credits`, `health_check`, survival checks), whatever
+     `heartbeat.yml` or the heartbeat tables say.
    - Make `--run` work without a Conway API key in local mode.
    - Fix the tokenizer hang: fall back to length/4 for long strings with no spaces, and get
      `context-hardening.test.ts` passing. The full test suite must finish.
@@ -117,6 +123,43 @@ especially ones that strip the constitution.
 5. Clone gate (local container spawn), culling sequence, data bank.
 6. Wire the bot tools: `request_loan`, `deposit_surplus`, `send_to_peer`, `read_archive`.
 7. Real funds: only after 2–6 pass, small amounts, batched transfers, Halco funds wallets himself.
+
+## Open items
+- **Bots have no internet, so they can't earn yet.** Each bot's network reaches only ollama-gw (and the
+  bank from step 4). Outside access will come later through an allowlisted egress proxy, which needs
+  Halco's approval (destinations, methods, logging) before it's built.
+- **Bot-writable state (audit, Oct 23).** A bot owns `/home/bot` and has `exec`, so it can rewrite any
+  file there, including `state.db` (better-sqlite3 is in the image). Fixed: `loadConstitution()` and
+  `propagateConstitution()` read only the shipped copy. Still open (proposed fixes, not built yet):
+  | What the bot can change | Weakens | Proposed fix |
+  |---|---|---|
+  | `automaton.json` `treasuryPolicy` (only negatives rejected) | all transfer/x402/inference caps | operator `policy.json` mounted read-only, applied after `automaton.json`; bank enforces money caps (step 4) |
+  | `automaton.json` `modelStrategy`, `inferenceModel`, API keys, `conwayApiUrl`/`ollamaBaseUrl`/`rpcUrl`/`socialRelayUrl`; `config.json` API key | no-paid-fallback rule, endpoint pinning (contained today by network) | step 3: models/endpoints from operator config only; ignore keys from the volume in local mode |
+  | `inference-providers.json` | provider list, base URLs, `emergencyStopCredits` | ignore it in local mode (step 3) |
+  | `automaton.json` `dbPath`/`heartbeatConfigPath`/`skillsDir` | point at a fresh DB to wipe spend history | fix these paths in operator config |
+  | `state.db` `spend_tracking`, `inference_costs` | hourly/daily transfer caps, inference budget | authoritative counters in the bank; local ones advisory |
+  | `state.db` `policy_decisions` | rate limits (counted from this table) | rate-limit counters outside the bot (bank/gateway) |
+  | `state.db` `modifications`, `turns`, `tool_calls` | audit log (rule 6) | append-only copy outside the container (ship entries to the bank/referee) |
+  | `heartbeat.yml` / heartbeat tables | can disable `check_credits`, `health_check`, survival checks | force-enable safety tasks in code, like `check_for_updates` |
+  | `wallet.json` (bot can read its own key) | lets a bot sign transfers itself, bypassing bank + policy, once it has a route to a chain | no keys in bot volumes; SimLedger has none, bank signs in real mode (step 7) |
+  | `creatorAddress`/`parentAddress` | prompt-level only (authority is by input source, not address) | operator config |
+  | `SOUL.md`, `WORKLOG.md`, `skills/`, `genesisPrompt` | prompt content only | treat as untrusted when copied to clones/archive (step 5) |
+
+## Step 2 notes (Oct 23, 2026)
+- **Run bots only through `scripts/bots/bot.sh`** (`build`, `up`, `start <name>`, `stop`, `status`,
+  `kill-all`, `unkill`). Settings live in `deploy/bots.conf`. Images: `deploy/bot/Dockerfile`
+  (source baked in, root-owned, `--read-only`) and `deploy/gateway/` (ollama-gw).
+- **Networks:** one `--internal` network per bot with `gateway_mode_ipv4/6=isolated`. Plain `--internal`
+  is *not* enough: containers can still reach any host service on `0.0.0.0` via the bridge gateway IP.
+  ollama-gw joins every bot network plus `ollama-uplink` (172.30.255.0/29, bridge `br-ollama-up`).
+- **Ollama** listens only on `172.30.255.1:11434` via `deploy/ollama/override.conf` (Halco installs with
+  sudo). It starts after Docker, waits for `br-ollama-up`, and retries forever. Host CLI needs
+  `OLLAMA_HOST=172.30.255.1:11434`. After a reboot nothing bot-side runs until `bot.sh start`/`up`.
+- **Kill switch:** `bot.sh kill-all` writes `~/.bot-economy/KILLED`, then kills every bot and ollama-gw.
+  Nothing starts until `bot.sh unkill`.
+- **Self-update off:** `pull_upstream`, `reset_to_upstream`, `review_upstream_changes` filtered out of
+  `createBuiltinTools`; `check_for_updates` is a no-op.
+- **Tests:** `npm test` (unit) and `npm run test:isolation` (Docker, about 1 to 4 min including image build).
 
 ## Step 1 findings (Oct 23, 2026)
 - HEAD matched upstream/main. Build passes with `npm install` + `npx tsc` (root and `packages/cli`).
@@ -139,6 +182,6 @@ especially ones that strip the constitution.
 
 ## Environment
 - Windows + WSL 2 (Ubuntu). Repo lives at `~/adam-and-eve` in WSL, not `/mnt/c`.
-- Node 22. Build: `npm install`, then `npx tsc` (or `npm run build` once pnpm is installed).
+- Node 22. Build: `npm run build` (pnpm 10.28.1 via corepack in `~/.local/bin`).
 - Runtime state lives in `~/.automaton/`. Off-limits except for logs Halco points you to.
 - Automaton's hosted mode bills Conway Cloud in USDC on Base. Don't fund or configure it without Halco.

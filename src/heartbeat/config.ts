@@ -41,7 +41,7 @@ const DEFAULT_HEARTBEAT_CONFIG: HeartbeatConfig = {
       name: "check_for_updates",
       schedule: "0 */4 * * *",
       task: "check_for_updates",
-      enabled: true,
+      enabled: false, // bots don't update themselves; the task is also a no-op,
     },
     {
       name: "health_check",
