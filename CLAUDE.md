@@ -99,16 +99,21 @@ especially ones that strip the constitution.
 
 ## Build order (current step marked)
 1. ~~Baseline: build, read the code, summarize.~~ **Done** (see Step 1 findings).
-2. **[CURRENT] Isolation.** Code and tests done, real request through ollama-gw confirmed (see Step 2
-   notes). Left before merge: Halco re-installs the updated Ollama override and checks a full reboot.
+2. ~~Isolation.~~ **Done** (see Step 2 notes). Reboot check passed Oct 23.
    - Install pnpm via corepack so `npm run build` works (ask first).
    - Docker sandbox for one bot: read-only source, own data volume, no `/mnt/c`, no git creds,
      network limited, resource limits, kill switch.
    - Disable `pull_upstream` / `check_for_updates` for bots.
    - Tests: inside the container, `cp`, `tee`, `node -e`, `python3`, `perl -pi`, `mv`, `rm` and
      `git checkout` against source files all fail; `/mnt/c` and the host home are unreachable.
-3. **Local model.**
+3. **[CURRENT] Local model.**
    - Pin bots to Ollama (default and low-compute models); remove the Conway fallback.
+   - Models and endpoints come from operator config only (read-only, outside the bot's volume).
+     In local mode, ignore `inference-providers.json` and any API keys on the volume
+     (`automaton.json`, `config.json`).
+   - Pin `dbPath` (and `heartbeatConfigPath`, `skillsDir`) so the volume config can't repoint them.
+   - Force the safety heartbeat tasks on (`check_credits`, `health_check`, survival checks), whatever
+     `heartbeat.yml` or the heartbeat tables say.
    - Make `--run` work without a Conway API key in local mode.
    - Fix the tokenizer hang: fall back to length/4 for long strings with no spaces, and get
      `context-hardening.test.ts` passing. The full test suite must finish.
@@ -124,8 +129,8 @@ especially ones that strip the constitution.
   bank from step 4). Outside access will come later through an allowlisted egress proxy, which needs
   Halco's approval (destinations, methods, logging) before it's built.
 - **Bot-writable state (audit, Oct 23).** A bot owns `/home/bot` and has `exec`, so it can rewrite any
-  file there, including `state.db` (better-sqlite3 is in the image). Fixed: `loadConstitution()` reads only
-  the shipped copy. Still open (proposed fixes, not built yet):
+  file there, including `state.db` (better-sqlite3 is in the image). Fixed: `loadConstitution()` and
+  `propagateConstitution()` read only the shipped copy. Still open (proposed fixes, not built yet):
   | What the bot can change | Weakens | Proposed fix |
   |---|---|---|
   | `automaton.json` `treasuryPolicy` (only negatives rejected) | all transfer/x402/inference caps | operator `policy.json` mounted read-only, applied after `automaton.json`; bank enforces money caps (step 4) |
@@ -137,7 +142,6 @@ especially ones that strip the constitution.
   | `state.db` `modifications`, `turns`, `tool_calls` | audit log (rule 6) | append-only copy outside the container (ship entries to the bank/referee) |
   | `heartbeat.yml` / heartbeat tables | can disable `check_credits`, `health_check`, survival checks | force-enable safety tasks in code, like `check_for_updates` |
   | `wallet.json` (bot can read its own key) | lets a bot sign transfers itself, bypassing bank + policy, once it has a route to a chain | no keys in bot volumes; SimLedger has none, bank signs in real mode (step 7) |
-  | `propagateConstitution()` reads `~/.automaton/constitution.md` | clones would inherit a tampered constitution | read `CONSTITUTION_PATH` (step 5, or now) |
   | `creatorAddress`/`parentAddress` | prompt-level only (authority is by input source, not address) | operator config |
   | `SOUL.md`, `WORKLOG.md`, `skills/`, `genesisPrompt` | prompt content only | treat as untrusted when copied to clones/archive (step 5) |
 
