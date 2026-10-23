@@ -51,7 +51,7 @@ export function parseUpstream(raw) {
 }
 
 function send(res, status, message) {
-  const body = JSON.stringify({ error: message });
+  const body = JSON.stringify(status < 400 ? { status: message } : { error: message });
   res.writeHead(status, { "content-type": "application/json", "content-length": Buffer.byteLength(body) });
   res.end(body);
 }

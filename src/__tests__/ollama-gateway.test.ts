@@ -189,6 +189,7 @@ describe("ollama-gw", () => {
   it("answers its own health check", async () => {
     const res = await request("GET", "/healthz");
     expect(res.status).toBe(200);
+    expect(JSON.parse(res.body)).toEqual({ status: "ok" });
     expect(seen).toHaveLength(0);
   });
 
