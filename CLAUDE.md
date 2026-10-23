@@ -99,8 +99,8 @@ especially ones that strip the constitution.
 
 ## Build order (current step marked)
 1. ~~Baseline: build, read the code, summarize.~~ **Done** (see Step 1 findings).
-2. **[CURRENT] Isolation.** Code and tests done (see Step 2 notes); waiting on Halco to install the
-   Ollama binding and confirm a real request through ollama-gw.
+2. **[CURRENT] Isolation.** Code and tests done, real request through ollama-gw confirmed (see Step 2
+   notes). Left before merge: Halco re-installs the updated Ollama override and checks a full reboot.
    - Install pnpm via corepack so `npm run build` works (ask first).
    - Docker sandbox for one bot: read-only source, own data volume, no `/mnt/c`, no git creds,
      network limited, resource limits, kill switch.
@@ -123,9 +123,23 @@ especially ones that strip the constitution.
 - **Bots have no internet, so they can't earn yet.** Each bot's network reaches only ollama-gw (and the
   bank from step 4). Outside access will come later through an allowlisted egress proxy, which needs
   Halco's approval (destinations, methods, logging) before it's built.
-- `loadConstitution()` (`src/agent/system-prompt.ts`) reads `~/.automaton/constitution.md` before
-  `/app/constitution.md`. In a container the first path is on the bot's writable volume, so a bot could
-  replace its own constitution. Proposed fix: prefer the read-only copy. Needs Halco's OK (core file).
+- **Bot-writable state (audit, Oct 23).** A bot owns `/home/bot` and has `exec`, so it can rewrite any
+  file there, including `state.db` (better-sqlite3 is in the image). Fixed: `loadConstitution()` reads only
+  the shipped copy. Still open (proposed fixes, not built yet):
+  | What the bot can change | Weakens | Proposed fix |
+  |---|---|---|
+  | `automaton.json` `treasuryPolicy` (only negatives rejected) | all transfer/x402/inference caps | operator `policy.json` mounted read-only, applied after `automaton.json`; bank enforces money caps (step 4) |
+  | `automaton.json` `modelStrategy`, `inferenceModel`, API keys, `conwayApiUrl`/`ollamaBaseUrl`/`rpcUrl`/`socialRelayUrl`; `config.json` API key | no-paid-fallback rule, endpoint pinning (contained today by network) | step 3: models/endpoints from operator config only; ignore keys from the volume in local mode |
+  | `inference-providers.json` | provider list, base URLs, `emergencyStopCredits` | ignore it in local mode (step 3) |
+  | `automaton.json` `dbPath`/`heartbeatConfigPath`/`skillsDir` | point at a fresh DB to wipe spend history | fix these paths in operator config |
+  | `state.db` `spend_tracking`, `inference_costs` | hourly/daily transfer caps, inference budget | authoritative counters in the bank; local ones advisory |
+  | `state.db` `policy_decisions` | rate limits (counted from this table) | rate-limit counters outside the bot (bank/gateway) |
+  | `state.db` `modifications`, `turns`, `tool_calls` | audit log (rule 6) | append-only copy outside the container (ship entries to the bank/referee) |
+  | `heartbeat.yml` / heartbeat tables | can disable `check_credits`, `health_check`, survival checks | force-enable safety tasks in code, like `check_for_updates` |
+  | `wallet.json` (bot can read its own key) | lets a bot sign transfers itself, bypassing bank + policy, once it has a route to a chain | no keys in bot volumes; SimLedger has none, bank signs in real mode (step 7) |
+  | `propagateConstitution()` reads `~/.automaton/constitution.md` | clones would inherit a tampered constitution | read `CONSTITUTION_PATH` (step 5, or now) |
+  | `creatorAddress`/`parentAddress` | prompt-level only (authority is by input source, not address) | operator config |
+  | `SOUL.md`, `WORKLOG.md`, `skills/`, `genesisPrompt` | prompt content only | treat as untrusted when copied to clones/archive (step 5) |
 
 ## Step 2 notes (Oct 23, 2026)
 - **Run bots only through `scripts/bots/bot.sh`** (`build`, `up`, `start <name>`, `stop`, `status`,
@@ -135,7 +149,8 @@ especially ones that strip the constitution.
   is *not* enough: containers can still reach any host service on `0.0.0.0` via the bridge gateway IP.
   ollama-gw joins every bot network plus `ollama-uplink` (172.30.255.0/29, bridge `br-ollama-up`).
 - **Ollama** listens only on `172.30.255.1:11434` via `deploy/ollama/override.conf` (Halco installs with
-  sudo). Host CLI needs `OLLAMA_HOST=172.30.255.1:11434`.
+  sudo). It starts after Docker, waits for `br-ollama-up`, and retries forever. Host CLI needs
+  `OLLAMA_HOST=172.30.255.1:11434`. After a reboot nothing bot-side runs until `bot.sh start`/`up`.
 - **Kill switch:** `bot.sh kill-all` writes `~/.bot-economy/KILLED`, then kills every bot and ollama-gw.
   Nothing starts until `bot.sh unkill`.
 - **Self-update off:** `pull_upstream`, `reset_to_upstream`, `review_upstream_changes` filtered out of
