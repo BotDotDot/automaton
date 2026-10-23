@@ -124,6 +124,17 @@ function enforceLruLimit(cache: Map<string, number>): void {
   }
 }
 
+// js-tiktoken is quadratic on long runs without whitespace (base64, minified
+// code, "xxxx..."), which can hang the process. Above these limits we use the
+// length/4 estimate instead of encoding.
+export const MAX_ENCODE_CHARS = 20_000;
+export const MAX_UNBROKEN_RUN = 500;
+const UNBROKEN_RUN = new RegExp(`\\S{${MAX_UNBROKEN_RUN},}`);
+
+export function shouldSkipEncoding(text: string): boolean {
+  return text.length > MAX_ENCODE_CHARS || UNBROKEN_RUN.test(text);
+}
+
 function formatCacheKey(text: string, model?: string): string {
   return `${model ?? "default"}::${text}`;
 }
@@ -150,7 +161,9 @@ export function createTokenCounter(): TokenCounter {
     }
 
     let count: number;
-    if (encoder) {
+    if (shouldSkipEncoding(normalizedText)) {
+      count = Math.ceil(normalizedText.length / 4);
+    } else if (encoder) {
       try {
         count = encoder.encode(normalizedText).length;
       } catch {
