@@ -28,6 +28,7 @@ import {
   insertWakeEvent,
 } from "../state/database.js";
 import { createLogger } from "../observability/logger.js";
+import { enforceSafetySchedule, taskAllowed } from "./policy.js";
 
 type DatabaseType = BetterSqlite3.Database;
 const logger = createLogger("heartbeat.scheduler");
@@ -89,6 +90,9 @@ export class DurableScheduler {
       // Clear any expired leases first
       clearExpiredLeases(this.db);
 
+      // Safety tasks can't be disabled, deleted or rescheduled by the bot.
+      enforceSafetySchedule(this.db);
+
       // Build shared context (single API call for balance)
       const context = await buildTickContext(
         this.db,
@@ -121,8 +125,12 @@ export class DurableScheduler {
   getDueTasks(context: TickContext): HeartbeatScheduleRow[] {
     const schedule = getHeartbeatSchedule(this.db);
     const now = new Date();
+    const localMode = this.legacyContext.config.localMode === true;
 
     return schedule.filter((row) => {
+      // Conway-only tasks never run in local mode
+      if (!taskAllowed(row.taskName, localMode)) return false;
+
       // Skip disabled tasks
       if (!row.enabled) return false;
 
@@ -175,6 +183,7 @@ export class DurableScheduler {
   async executeTask(taskName: string, ctx: TickContext): Promise<void> {
     const taskFn = this.tasks.get(taskName);
     if (!taskFn) return;
+    if (!taskAllowed(taskName, this.legacyContext.config.localMode === true)) return;
 
     const schedule = getHeartbeatSchedule(this.db).find(
       (r) => r.taskName === taskName,
