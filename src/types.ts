@@ -83,6 +83,8 @@ export interface AutomatonConfig {
   ollamaThink?: boolean;
   /** Local mode: placeholder balance until the bank's SimLedger exists. */
   simBalanceCents?: number;
+  /** Local mode: exit cleanly after this many turns (operator maxTurns). */
+  turnLimit?: number;
 }
 
 export const DEFAULT_CONFIG: Partial<AutomatonConfig> = {

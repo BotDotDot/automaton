@@ -50,6 +50,8 @@ export interface OperatorConfig {
   ollama: OperatorOllamaConfig;
   /** Placeholder balance until the bank's SimLedger exists (step 4). */
   simBalanceCents: number;
+  /** Optional: exit cleanly after this many turns in this process (test runs). */
+  maxTurns?: number;
 }
 
 const ADDRESS = /^0x[0-9a-fA-F]{40}$/;
@@ -71,6 +73,9 @@ export function parseOperatorConfig(raw: unknown, path = "operator.json"): Opera
   if (typeof r.creatorAddress !== "string" || !ADDRESS.test(r.creatorAddress)) fail(path, "creatorAddress");
   if (typeof r.genesisPrompt !== "string" || r.genesisPrompt.trim() === "") fail(path, "genesisPrompt");
   if (!Number.isInteger(r.simBalanceCents) || r.simBalanceCents < 0) fail(path, "simBalanceCents");
+  if (r.maxTurns !== undefined && (!Number.isInteger(r.maxTurns) || r.maxTurns < 1 || r.maxTurns > 10_000)) {
+    fail(path, "maxTurns");
+  }
 
   let url: URL;
   try {
@@ -97,6 +102,7 @@ export function parseOperatorConfig(raw: unknown, path = "operator.json"): Opera
     creatorAddress: r.creatorAddress,
     genesisPrompt: r.genesisPrompt,
     simBalanceCents: r.simBalanceCents,
+    ...(r.maxTurns !== undefined ? { maxTurns: r.maxTurns } : {}),
     ollama: Object.freeze({
       baseUrl: url.origin,
       model: o.model,

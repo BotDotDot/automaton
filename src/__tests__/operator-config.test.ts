@@ -36,7 +36,14 @@ describe("parseOperatorConfig", () => {
     ["maxTokensPerTurn", (c) => (c.ollama.maxTokensPerTurn = 999999)],
     ["think", (c) => (c.ollama.think = "no")],
     ["ollama", (c) => delete c.ollama],
+    ["maxTurns zero", (c) => (c.maxTurns = 0)],
+    ["maxTurns fraction", (c) => (c.maxTurns = 2.5)],
   ];
+
+  it("maxTurns is optional and passed through", () => {
+    expect(parseOperatorConfig(VALID_OPERATOR).maxTurns).toBeUndefined();
+    expect(parseOperatorConfig({ ...VALID_OPERATOR, maxTurns: 8 }).maxTurns).toBe(8);
+  });
   for (const [name, mutate] of bad) {
     it(`rejects bad ${name}`, () => {
       const c = structuredClone(VALID_OPERATOR) as any;
@@ -114,6 +121,7 @@ describe("local-mode loadConfig", () => {
       rpcUrl: "https://rpc.example",
       parentAddress: "0x9999999999999999999999999999999999999999",
       maxTurnsPerCycle: 10_000,
+      turnLimit: 999_999,
     });
     writeVolume("config.json", { apiKey: "cnwy_config_json_key" });
 
@@ -136,6 +144,7 @@ describe("local-mode loadConfig", () => {
     expect(c.skillsDir).toBe("~/.automaton/skills");
     expect(c.maxChildren).toBe(0);
     expect(c.sandboxId).toBe("");
+    expect(c.turnLimit).toBeUndefined();
     expect(c.socialRelayUrl).toBeUndefined();
     expect(c.rpcUrl).toBeUndefined();
     expect(c.maxTurnsPerCycle).toBe(25);

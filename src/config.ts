@@ -164,6 +164,7 @@ function loadLocalConfig(operator: OperatorConfig): AutomatonConfig {
     maxChildren: 0,
     childSandboxMemoryMb: DEFAULT_CONFIG.childSandboxMemoryMb,
     simBalanceCents: operator.simBalanceCents,
+    turnLimit: operator.maxTurns,
   };
 }
 

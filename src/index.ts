@@ -424,6 +424,17 @@ async function run(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Operator turn limit (local test runs): stop after N turns in this process.
+  // Checked after each turn is persisted, so the last turn is never lost.
+  let turnsThisProcess = 0;
+  const countTurn = () => {
+    turnsThisProcess++;
+    if (config.turnLimit && turnsThisProcess >= config.turnLimit) {
+      logger.info(`[${new Date().toISOString()}] Turn limit reached (${config.turnLimit}). Stopping.`);
+      shutdown();
+    }
+  };
+
   // ─── Main Run Loop ──────────────────────────────────────────
   // The automaton alternates between running and sleeping.
   // The heartbeat can wake it up.
@@ -456,6 +467,7 @@ async function run(): Promise<void> {
           logger.info(
             `[${new Date().toISOString()}] Turn ${turn.id}: ${turn.toolCalls.length} tools, ${turn.tokenUsage.totalTokens} tokens`,
           );
+          countTurn();
         },
       });
 
