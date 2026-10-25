@@ -302,6 +302,16 @@ describe("operator config", () => {
     expect(JSON.parse(inside(B, `cat ${OP}`).stdout).botId).toBe("beta");
   });
 
+  it("built write_file writes to the bot's home, not /root", () => {
+    const r = inside(
+      A,
+      `node --input-type=module -e "const fs = await import('fs'); const { createBuiltinTools } = await import('/app/dist/agent/tools.js'); const w = createBuiltinTools('', { localMode: true }).find((t) => t.name === 'write_file'); const ctx = { conway: { writeFile: async (f, c) => { fs.mkdirSync(f.replace(/[^/]+$/, ''), { recursive: true }); fs.writeFileSync(f, c); } } }; console.log(await w.execute({ path: '~/.automaton/WORKLOG.md', content: 'ok' }, ctx)); console.log(await w.execute({ path: '/app/x', content: 'x' }, ctx));"`,
+    );
+    expect(r.stdout).toContain("File written: /home/bot/.automaton/WORKLOG.md");
+    expect(r.stdout).toMatch(/Blocked: write_file path "\/app\/x"/);
+    expect(inside(A, "cat ~/.automaton/WORKLOG.md").stdout).toBe("ok");
+  });
+
   it("built code runs in local mode from the operator file, ignoring the volume", () => {
     inside(A, `mkdir -p ~/.automaton && echo '{"inferenceModel":"gpt-5.2","conwayApiKey":"cnwy_x","dbPath":"/tmp/x.db"}' > ~/.automaton/automaton.json`);
     const r = inside(
@@ -310,7 +320,7 @@ describe("operator config", () => {
     );
     expect(JSON.parse(r.stdout.trim().split("\n").pop()!)).toEqual({
       local: true,
-      model: "qwen3:8b",
+      model: JSON.parse(fs.readFileSync(path.join(REPO, "deploy/operator.example.json"), "utf-8")).ollama.model,
       key: "",
       db: "~/.automaton/state.db",
       url: "http://ollama-gw:11434",

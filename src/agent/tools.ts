@@ -22,19 +22,24 @@ import type {
 import type { PolicyEngine } from "./policy-engine.js";
 import { sanitizeToolResult, sanitizeInput } from "./injection-defense.js";
 import { createLogger } from "../observability/logger.js";
+import { isLocalMode } from "../operator/config.js";
 
 const logger = createLogger("tools");
 
 // ─── Path Confinement ─────────────────────────────────────────
 // write_file is restricted to the sandbox home directory tree.
-// The sandbox home is /root for both local and remote execution.
-const SANDBOX_HOME = "/root";
+// The sandbox home is /root on Conway sandboxes. In local mode it is the
+// bot's own HOME (/home/bot in the container), set at container start.
+function sandboxHome(): string {
+  return isLocalMode() ? nodePath.resolve(process.env.HOME || "/root") : "/root";
+}
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
  * Returns the resolved absolute path, or an error string if out of bounds.
  */
 function confinePathToSandbox(filePath: string): string | { error: string } {
+  const SANDBOX_HOME = sandboxHome();
   // Resolve ~ to SANDBOX_HOME
   const expanded = filePath.startsWith("~")
     ? nodePath.join(SANDBOX_HOME, filePath.slice(1))
