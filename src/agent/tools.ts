@@ -159,7 +159,23 @@ export function createBuiltinTools(
   opts: { localMode?: boolean } = {},
 ): AutomatonTool[] {
   const tools = allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
-  return opts.localMode ? tools.filter((t) => LOCAL_MODE_TOOLS.has(t.name)) : tools;
+  if (!opts.localMode) return tools;
+  return tools
+    .filter((t) => LOCAL_MODE_TOOLS.has(t.name))
+    .map((t) => (t.name === "check_credits" ? localCheckBalance(t) : t));
+}
+
+// Local mode: the balance is a placeholder until the bank exists (step 4).
+function localCheckBalance(tool: AutomatonTool): AutomatonTool {
+  return {
+    ...tool,
+    category: "survival",
+    description: "Check your balance (a simulated placeholder set by your operator; not real money).",
+    execute: async (_args, ctx) => {
+      const balance = await ctx.conway.getCreditsBalance();
+      return `Balance: $${(balance / 100).toFixed(2)} (placeholder, simulated; not real money, nothing charges it yet)`;
+    },
+  };
 }
 
 function allBuiltinTools(sandboxId: string): AutomatonTool[] {
