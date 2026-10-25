@@ -6,7 +6,7 @@
   "simBalanceCents": 2000,
   "ollama": {
     "baseUrl": "http://ollama-gw:11434",
-    "model": "qwen3:8b",
+    "model": "qwen3:4b",
     "lowComputeModel": "qwen3:4b",
     "numCtx": 16384,
     "maxTokensPerTurn": 2048,
