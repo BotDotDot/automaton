@@ -12,6 +12,12 @@ import { getAutomatonDir } from "./identity/wallet.js";
 import { loadApiKeyFromConfig } from "./identity/provision.js";
 import { createLogger } from "./observability/logger.js";
 import type { ChainType } from "./identity/chain.js";
+import {
+  getOperatorConfig,
+  PINNED_PATHS,
+  DISABLED_CONWAY_URL,
+  type OperatorConfig,
+} from "./operator/config.js";
 
 const logger = createLogger("config");
 const CONFIG_FILENAME = "automaton.json";
@@ -25,6 +31,9 @@ export function getConfigPath(): string {
  * Merges with defaults for any missing fields.
  */
 export function loadConfig(): AutomatonConfig | null {
+  const operator = getOperatorConfig();
+  if (operator) return loadLocalConfig(operator);
+
   const configPath = getConfigPath();
   if (!fs.existsSync(configPath)) {
     return null;
@@ -77,6 +86,86 @@ export function loadConfig(): AutomatonConfig | null {
   } catch {
     return null;
   }
+}
+
+const LOG_LEVELS = new Set(["debug", "info", "warn", "error"]);
+const MAX_LOCAL_TURNS_PER_CYCLE = 25;
+
+/**
+ * Local-mode config. Everything that affects safety, cost, identity or
+ * where state lives comes from the read-only operator config or fixed
+ * values. automaton.json on the bot's writable volume is optional and may
+ * only contribute harmless fields; API keys (automaton.json, config.json),
+ * endpoints, models, treasury policy and state paths in it are ignored.
+ */
+function loadLocalConfig(operator: OperatorConfig): AutomatonConfig {
+  let raw: Record<string, any> = {};
+  try {
+    const configPath = getConfigPath();
+    if (fs.existsSync(configPath)) {
+      raw = JSON.parse(fs.readFileSync(configPath, "utf-8")) ?? {};
+    }
+  } catch {
+    raw = {};
+  }
+
+  const turns = Number(raw.maxTurnsPerCycle);
+  const maxTurnsPerCycle = Number.isInteger(turns) && turns > 0
+    ? Math.min(turns, MAX_LOCAL_TURNS_PER_CYCLE)
+    : DEFAULT_CONFIG.maxTurnsPerCycle;
+
+  const { ollama } = operator;
+  return {
+    // Harmless fields the bot may set
+    creatorMessage: typeof raw.creatorMessage === "string" ? raw.creatorMessage : undefined,
+    logLevel: LOG_LEVELS.has(raw.logLevel) ? raw.logLevel : "info",
+    agentId: typeof raw.agentId === "string" ? raw.agentId : undefined,
+    soulConfig: { ...DEFAULT_SOUL_CONFIG, ...(typeof raw.soulConfig === "object" ? raw.soulConfig : {}) },
+    maxTurnsPerCycle,
+
+    // Operator-owned
+    localMode: true,
+    name: operator.botId,
+    genesisPrompt: operator.genesisPrompt,
+    creatorAddress: operator.creatorAddress,
+    walletAddress: operator.identityAddress,
+    parentAddress: undefined,
+    registeredWithConway: false,
+    sandboxId: "",
+    chainType: "evm",
+    version: DEFAULT_CONFIG.version || "0.2.1",
+
+    // No Conway, no paid providers
+    conwayApiUrl: DISABLED_CONWAY_URL,
+    conwayApiKey: "",
+    openaiApiKey: undefined,
+    anthropicApiKey: undefined,
+    socialRelayUrl: undefined,
+    rpcUrl: undefined,
+
+    // Ollama only, from the operator file
+    ollamaBaseUrl: ollama.baseUrl,
+    ollamaNumCtx: ollama.numCtx,
+    ollamaThink: ollama.think,
+    inferenceModel: ollama.model,
+    maxTokensPerTurn: ollama.maxTokensPerTurn,
+    modelStrategy: {
+      ...DEFAULT_MODEL_STRATEGY_CONFIG,
+      inferenceModel: ollama.model,
+      lowComputeModel: ollama.lowComputeModel,
+      criticalModel: ollama.lowComputeModel,
+      maxTokensPerTurn: ollama.maxTokensPerTurn,
+      enableModelFallback: false,
+    },
+
+    // Pinned
+    ...PINNED_PATHS,
+    treasuryPolicy: { ...DEFAULT_TREASURY_POLICY },
+    maxChildren: 0,
+    childSandboxMemoryMb: DEFAULT_CONFIG.childSandboxMemoryMb,
+    simBalanceCents: operator.simBalanceCents,
+    turnLimit: operator.maxTurns,
+  };
 }
 
 /**

@@ -41,6 +41,36 @@ function createSolanaStubAccount(solanaAddress: string): PrivateKeyAccount {
   } as unknown as PrivateKeyAccount;
 }
 
+/**
+ * Local mode identity: an address from the operator config with no private
+ * key behind it. Any signing attempt throws. No wallet.json is created.
+ */
+export function createKeylessIdentity(address: string): {
+  account: PrivateKeyAccount;
+  chainIdentity: ChainIdentity;
+  chainType: ChainType;
+} {
+  const throwSigning = () => {
+    throw new Error("Signing is not available in local mode: this bot has no private key.");
+  };
+  const account = {
+    address: address as `0x${string}`,
+    publicKey: "0x" as any,
+    source: "custom",
+    type: "local",
+    signMessage: throwSigning as any,
+    signTypedData: throwSigning as any,
+    signTransaction: throwSigning as any,
+    sign: throwSigning as any,
+  } as unknown as PrivateKeyAccount;
+  const chainIdentity: ChainIdentity = {
+    chainType: "evm",
+    address,
+    signMessage: async () => throwSigning(),
+  };
+  return { account, chainIdentity, chainType: "evm" };
+}
+
 const AUTOMATON_DIR = path.join(
   process.env.HOME || "/root",
   ".automaton",

@@ -22,19 +22,24 @@ import type {
 import type { PolicyEngine } from "./policy-engine.js";
 import { sanitizeToolResult, sanitizeInput } from "./injection-defense.js";
 import { createLogger } from "../observability/logger.js";
+import { isLocalMode } from "../operator/config.js";
 
 const logger = createLogger("tools");
 
 // ─── Path Confinement ─────────────────────────────────────────
 // write_file is restricted to the sandbox home directory tree.
-// The sandbox home is /root for both local and remote execution.
-const SANDBOX_HOME = "/root";
+// The sandbox home is /root on Conway sandboxes. In local mode it is the
+// bot's own HOME (/home/bot in the container), set at container start.
+function sandboxHome(): string {
+  return isLocalMode() ? nodePath.resolve(process.env.HOME || "/root") : "/root";
+}
 
 /**
  * Validate that a file path resolves to within the allowed root directory.
  * Returns the resolved absolute path, or an error string if out of bounds.
  */
 function confinePathToSandbox(filePath: string): string | { error: string } {
+  const SANDBOX_HOME = sandboxHome();
   // Resolve ~ to SANDBOX_HOME
   const expanded = filePath.startsWith("~")
     ? nodePath.join(SANDBOX_HOME, filePath.slice(1))
@@ -119,8 +124,63 @@ export const SELF_UPDATE_TOOLS: ReadonlySet<string> = new Set([
   "reset_to_upstream",
 ]);
 
-export function createBuiltinTools(sandboxId: string): AutomatonTool[] {
-  return allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
+/**
+ * Local mode (Ollama, no internet): a small, offline-only tool set. Small
+ * models pick tools more reliably from a short list, and everything here
+ * works without Conway, a wallet or network access. Operator-owned settings
+ * (genesis prompt, heartbeat, model) are not editable from here.
+ */
+export const LOCAL_MODE_TOOLS: ReadonlySet<string> = new Set([
+  // files and shell, inside the bot's own container
+  "exec",
+  "read_file",
+  "write_file",
+  // status
+  "check_credits",
+  "system_synopsis",
+  "sleep",
+  // memory
+  "set_goal",
+  "complete_goal",
+  "review_memory",
+  "remember_fact",
+  "recall_facts",
+  "save_procedure",
+  "recall_procedure",
+  // soul
+  "view_soul",
+  "update_soul",
+  "reflect_on_soul",
+  // git on the bot's own state directory
+  "git_status",
+  "git_log",
+  "git_commit",
+  // skills (read-only)
+  "list_skills",
+]);
+
+export function createBuiltinTools(
+  sandboxId: string,
+  opts: { localMode?: boolean } = {},
+): AutomatonTool[] {
+  const tools = allBuiltinTools(sandboxId).filter((t) => !SELF_UPDATE_TOOLS.has(t.name));
+  if (!opts.localMode) return tools;
+  return tools
+    .filter((t) => LOCAL_MODE_TOOLS.has(t.name))
+    .map((t) => (t.name === "check_credits" ? localCheckBalance(t) : t));
+}
+
+// Local mode: the balance is a placeholder until the bank exists (step 4).
+function localCheckBalance(tool: AutomatonTool): AutomatonTool {
+  return {
+    ...tool,
+    category: "survival",
+    description: "Check your balance (a simulated placeholder set by your operator; not real money).",
+    execute: async (_args, ctx) => {
+      const balance = await ctx.conway.getCreditsBalance();
+      return `Balance: $${(balance / 100).toFixed(2)} (placeholder, simulated; not real money, nothing charges it yet)`;
+    },
+  };
 }
 
 function allBuiltinTools(sandboxId: string): AutomatonTool[] {

@@ -9,7 +9,7 @@
 
 import fs from "fs";
 import path from "path";
-import { getWallet, getAutomatonDir } from "./identity/wallet.js";
+import { getWallet, getAutomatonDir, createKeylessIdentity } from "./identity/wallet.js";
 import { provision, loadApiKeyFromConfig } from "./identity/provision.js";
 import { loadConfig, resolvePath } from "./config.js";
 import { createDatabase } from "./state/database.js";
@@ -23,6 +23,8 @@ import {
 import { consumeNextWakeEvent, insertWakeEvent } from "./state/database.js";
 import { runAgentLoop } from "./agent/loop.js";
 import { ModelRegistry } from "./inference/registry.js";
+import { localModelEntries } from "./operator/config.js";
+import { createLocalConwayClient } from "./operator/local-conway.js";
 import { loadSkills } from "./skills/loader.js";
 import { initStateRepo } from "./git/state-versioning.js";
 import { createSocialClient } from "./social/client.js";
@@ -193,11 +195,19 @@ async function run(): Promise<void> {
     config = await runSetupWizard();
   }
 
-  // Load wallet (chain-aware)
-  const { account, chainIdentity, chainType: walletChainType } = await getWallet();
+  // Local mode (operator config): Ollama only, no Conway, no wallet.
+  const localMode = config.localMode === true;
+  if (localMode) {
+    logger.info(`[${new Date().toISOString()}] Local mode: Ollama at ${config.ollamaBaseUrl}, no Conway, no wallet.`);
+  }
+
+  // Load wallet (chain-aware). Local mode has a keyless identity instead.
+  const { account, chainIdentity, chainType: walletChainType } = localMode
+    ? createKeylessIdentity(config.walletAddress)
+    : await getWallet();
   const resolvedChainType = config.chainType || walletChainType || "evm";
-  const apiKey = config.conwayApiKey || loadApiKeyFromConfig();
-  if (!apiKey) {
+  const apiKey: string = localMode ? "" : config.conwayApiKey || loadApiKeyFromConfig() || "";
+  if (!apiKey && !localMode) {
     logger.error("No API key found. Run: automaton --provision");
     process.exit(1);
   }
@@ -238,16 +248,20 @@ async function run(): Promise<void> {
     db.setIdentity("automatonId", automatonId);
   }
 
-  // Create Conway client
-  const conway = createConwayClient({
+  // Create Conway client. In local mode only local exec/files work and the
+  // balance is the operator's placeholder; every Conway API call throws.
+  const baseConway = createConwayClient({
     apiUrl: config.conwayApiUrl,
     apiKey,
     sandboxId: config.sandboxId,
   });
+  const conway = localMode
+    ? createLocalConwayClient(baseConway, config.simBalanceCents ?? 0)
+    : baseConway;
 
   // Register automaton identity (one-time, immutable)
   const registrationState = db.getIdentity("conwayRegistrationStatus");
-  if (registrationState !== "registered") {
+  if (!localMode && registrationState !== "registered") {
     try {
       const genesisPromptHash = config.genesisPrompt
         ? keccak256(toHex(config.genesisPrompt))
@@ -278,12 +292,19 @@ async function run(): Promise<void> {
   }
 
   // Resolve Ollama base URL: env var takes precedence over config
-  const ollamaBaseUrl = process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
+  // (local mode: operator config only)
+  const ollamaBaseUrl = localMode
+    ? config.ollamaBaseUrl
+    : process.env.OLLAMA_BASE_URL || config.ollamaBaseUrl;
 
   // Create inference client — pass a live registry lookup so model names like
   // "gpt-oss:120b" route to Ollama based on their registered provider, not heuristics.
   const modelRegistry = new ModelRegistry(db.raw);
-  modelRegistry.initialize();
+  if (localMode) {
+    modelRegistry.initializeLocal(localModelEntries(config));
+  } else {
+    modelRegistry.initialize();
+  }
   const inference = createInferenceClient({
     apiUrl: config.conwayApiUrl,
     apiKey,
@@ -294,6 +315,9 @@ async function run(): Promise<void> {
     anthropicApiKey: config.anthropicApiKey,
     ollamaBaseUrl,
     getModelProvider: (modelId) => modelRegistry.get(modelId)?.provider,
+    local: localMode
+      ? { numCtx: config.ollamaNumCtx ?? 16384, think: config.ollamaThink ?? false }
+      : undefined,
   });
 
   if (ollamaBaseUrl) {
@@ -338,7 +362,8 @@ async function run(): Promise<void> {
 
   // Bootstrap topup: buy minimum credits ($5) from USDC so the agent can start.
   // The agent decides larger topups itself via the topup_credits tool.
-  try {
+  // Never in local mode (no wallet, no Conway).
+  if (!localMode) try {
     let bootstrapTimer: ReturnType<typeof setTimeout>;
     const bootstrapTimeout = new Promise<null>((_, reject) => {
       bootstrapTimer = setTimeout(() => reject(new Error("bootstrap topup timed out")), 15_000);
@@ -399,6 +424,17 @@ async function run(): Promise<void> {
   process.on("SIGTERM", shutdown);
   process.on("SIGINT", shutdown);
 
+  // Operator turn limit (local test runs): stop after N turns in this process.
+  // Checked after each turn is persisted, so the last turn is never lost.
+  let turnsThisProcess = 0;
+  const countTurn = () => {
+    turnsThisProcess++;
+    if (config.turnLimit && turnsThisProcess >= config.turnLimit) {
+      logger.info(`[${new Date().toISOString()}] Turn limit reached (${config.turnLimit}). Stopping.`);
+      shutdown();
+    }
+  };
+
   // ─── Main Run Loop ──────────────────────────────────────────
   // The automaton alternates between running and sleeping.
   // The heartbeat can wake it up.
@@ -431,6 +467,7 @@ async function run(): Promise<void> {
           logger.info(
             `[${new Date().toISOString()}] Turn ${turn.id}: ${turn.toolCalls.length} tools, ${turn.tokenUsage.totalTokens} tokens`,
           );
+          countTurn();
         },
       });
 

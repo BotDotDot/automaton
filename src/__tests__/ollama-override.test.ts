@@ -47,6 +47,13 @@ describe("ollama systemd override", () => {
     expect(pre).toContain(` ${gateway}/`);
   });
 
+  it("sets the VRAM settings for an 8 GB card", () => {
+    expect(directives).toContain('Environment="OLLAMA_FLASH_ATTENTION=1"');
+    expect(directives).toContain('Environment="OLLAMA_KV_CACHE_TYPE=q8_0"');
+    expect(directives).toContain('Environment="OLLAMA_MAX_LOADED_MODELS=1"');
+    expect(directives).toContain('Environment="OLLAMA_CONTEXT_LENGTH=16384"');
+  });
+
   it("retries forever", () => {
     expect(directives).toContain("Restart=always");
     expect(directives).toContain("StartLimitIntervalSec=0");

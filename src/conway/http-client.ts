@@ -15,6 +15,7 @@ const LOOPBACK_HOSTS = new Set(["localhost", "127.0.0.1", "::1"]);
 function assertSecureUrl(
   url: string,
   allowHttpOnLoopback: boolean,
+  allowHttpOrigins: readonly string[] = [],
 ): void {
   let parsed: URL;
   try {
@@ -30,6 +31,9 @@ function assertSecureUrl(
 
   const host = parsed.hostname.toLowerCase();
   if (protocol === "http:" && allowHttpOnLoopback && LOOPBACK_HOSTS.has(host)) {
+    return;
+  }
+  if (protocol === "http:" && allowHttpOrigins.includes(parsed.origin)) {
     return;
   }
 
@@ -65,7 +69,7 @@ export class ResilientHttpClient {
       retries?: number;
     },
   ): Promise<Response> {
-    assertSecureUrl(url, this.config.allowHttpOnLoopback);
+    assertSecureUrl(url, this.config.allowHttpOnLoopback, this.config.allowHttpOrigins);
 
     if (this.isCircuitOpen()) {
       throw new CircuitOpenError(this.circuitOpenUntil);

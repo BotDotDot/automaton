@@ -28,11 +28,22 @@ export class InferenceRouter {
   private db: Database;
   private registry: ModelRegistry;
   private budget: InferenceBudgetTracker;
+  private localMode: boolean;
 
-  constructor(db: Database, registry: ModelRegistry, budget: InferenceBudgetTracker) {
+  /**
+   * @param opts.localMode  Ignore the built-in routing matrix (paid models)
+   *   and route only to the operator's Ollama models.
+   */
+  constructor(
+    db: Database,
+    registry: ModelRegistry,
+    budget: InferenceBudgetTracker,
+    opts: { localMode?: boolean } = {},
+  ) {
     this.db = db;
     this.registry = registry;
     this.budget = budget;
+    this.localMode = opts.localMode ?? false;
   }
 
   /**
@@ -196,6 +207,20 @@ export class InferenceRouter {
 
     const tierRank = TIER_ORDER[tier] ?? 0;
 
+    // Local mode: operator's Ollama models only. Main model for high/normal,
+    // small model for everything below.
+    if (this.localMode) {
+      const strategy = this.budget.config;
+      const ids = tier === "high" || tier === "normal"
+        ? [strategy.inferenceModel, strategy.lowComputeModel]
+        : [strategy.lowComputeModel, strategy.inferenceModel];
+      for (const modelId of ids) {
+        const entry = modelId ? this.registry.get(modelId) : undefined;
+        if (entry && entry.enabled && entry.provider === "ollama") return entry;
+      }
+      return null;
+    }
+
     // 1. Try routing-matrix candidates
     const preference = this.getPreference(tier, taskType);
     if (preference && preference.candidates.length > 0) {
@@ -325,6 +350,7 @@ export class InferenceRouter {
   }
 
   private getPreference(tier: SurvivalTier, taskType: InferenceTaskType): ModelPreference | undefined {
+    if (this.localMode) return undefined;
     return DEFAULT_ROUTING_MATRIX[tier]?.[taskType];
   }
 }

@@ -15,6 +15,7 @@ import type {
   InferenceToolDefinition,
 } from "../types.js";
 import { ResilientHttpClient } from "./http-client.js";
+import { chatViaOllamaNative } from "../ollama/chat.js";
 
 const INFERENCE_TIMEOUT_MS = 60_000;
 
@@ -29,6 +30,11 @@ interface InferenceClientOptions {
   ollamaBaseUrl?: string;
   /** Optional registry lookup — if provided, used before name heuristics */
   getModelProvider?: (modelId: string) => string | undefined;
+  /**
+   * Local mode: every call goes to Ollama's native /api/chat at
+   * ollamaBaseUrl. No Conway, OpenAI or Anthropic backend can be selected.
+   */
+  local?: { numCtx: number; think: boolean };
 }
 
 type InferenceBackend = "conway" | "openai" | "anthropic" | "ollama";
@@ -48,11 +54,17 @@ function isLoopbackHttpUrl(url: string | undefined): boolean {
 export function createInferenceClient(
   options: InferenceClientOptions,
 ): InferenceClient {
-  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider } = options;
+  const { apiUrl, apiKey, openaiApiKey, anthropicApiKey, ollamaBaseUrl, getModelProvider, local } = options;
+  if (local && !ollamaBaseUrl) {
+    throw new Error("Local mode requires an Ollama base URL");
+  }
   const httpClient = new ResilientHttpClient({
     baseTimeout: INFERENCE_TIMEOUT_MS,
     retryableStatuses: [429, 500, 502, 503, 504],
     allowHttpOnLoopback: isLoopbackHttpUrl(ollamaBaseUrl),
+    // Local mode: plain HTTP only to the exact operator-configured gateway.
+    allowHttpOrigins: local && ollamaBaseUrl ? [new URL(ollamaBaseUrl).origin] : [],
+    ...(local ? { maxRetries: 1 } : {}),
   });
   let currentModel = options.defaultModel;
   let maxTokens = options.maxTokens;
@@ -63,6 +75,22 @@ export function createInferenceClient(
   ): Promise<InferenceResponse> => {
     const model = opts?.model || currentModel;
     const tools = opts?.tools;
+
+    if (local) {
+      return chatViaOllamaNative(
+        {
+          baseUrl: ollamaBaseUrl as string,
+          model,
+          messages,
+          tools,
+          numCtx: local.numCtx,
+          numPredict: opts?.maxTokens || maxTokens,
+          think: local.think,
+          temperature: opts?.temperature,
+        },
+        httpClient,
+      );
+    }
 
     const backend = resolveInferenceBackend(model, {
       openaiApiKey,
@@ -135,8 +163,8 @@ export function createInferenceClient(
    */
   const setLowComputeMode = (enabled: boolean): void => {
     if (enabled) {
-      currentModel = options.lowComputeModel || "gpt-5-mini";
-      maxTokens = 4096;
+      currentModel = options.lowComputeModel || (local ? options.defaultModel : "gpt-5-mini");
+      maxTokens = local ? options.maxTokens : 4096;
     } else {
       currentModel = options.defaultModel;
       maxTokens = options.maxTokens;

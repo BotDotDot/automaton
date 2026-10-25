@@ -10,6 +10,8 @@ import YAML from "yaml";
 import type { HeartbeatEntry, HeartbeatConfig, AutomatonDatabase } from "../types.js";
 import { getAutomatonDir } from "../identity/wallet.js";
 import { createLogger } from "../observability/logger.js";
+import { enforceHeartbeatEntries } from "./policy.js";
+import { isLocalMode } from "../operator/config.js";
 
 const logger = createLogger("heartbeat.config");
 
@@ -68,7 +70,10 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
     configPath || path.join(getAutomatonDir(), "heartbeat.yml");
 
   if (!fs.existsSync(filePath)) {
-    return DEFAULT_HEARTBEAT_CONFIG;
+    return {
+      ...DEFAULT_HEARTBEAT_CONFIG,
+      entries: enforceHeartbeatEntries(DEFAULT_HEARTBEAT_CONFIG.entries, isLocalMode()),
+    };
   }
 
   try {
@@ -83,7 +88,7 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
       params: e.params,
     })) as HeartbeatEntry[];
 
-    const entries = mergeWithDefaults(parsedEntries);
+    const entries = enforceHeartbeatEntries(mergeWithDefaults(parsedEntries), isLocalMode());
 
     return {
       entries,
@@ -96,7 +101,10 @@ export function loadHeartbeatConfig(configPath?: string): HeartbeatConfig {
   } catch (error: any) {
     logger.error("Failed to parse YAML config", error instanceof Error ? error : undefined);
     // Continue with defaults, but log the error
-    return DEFAULT_HEARTBEAT_CONFIG;
+    return {
+      ...DEFAULT_HEARTBEAT_CONFIG,
+      entries: enforceHeartbeatEntries(DEFAULT_HEARTBEAT_CONFIG.entries, isLocalMode()),
+    };
   }
 }
 
